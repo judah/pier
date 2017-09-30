@@ -1,0 +1,40 @@
+name: stake
+license: BSD3
+maintainer: judah.jacobson@gmail.com
+synopsis: Yet another Haskell build system.
+description: >
+    A build system for Haskell projects, built on top of
+    [shake](http://shakebuild.com).
+category: Development
+github: judah/stake
+
+dependencies:
+  - base
+  - binary
+  - binary-orphans
+  - bytestring
+  - Cabal
+  - directory
+  - hashable
+  - lens
+  - shake
+  - unordered-containers
+  - text
+  - transformers
+  - wreq
+  - yaml
+
+default-extensions:
+  - BangPatterns
+  - LambdaCase
+  - FlexibleContexts
+  - DeriveGeneric
+  - ScopedTypeVariables
+  - StandaloneDeriving
+  - TypeFamilies
+  - TypeSynonymInstances
+
+executables:
+  stake:
+    source-dirs: 'src'
+    main: Development.Stake
