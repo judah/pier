@@ -19,6 +19,7 @@ main = runStake $ \(command:args) -> do
         "build"
             | planName:pkgNames <- args
                 -> action $ do
-                        plan <- readPlan (PlanName planName)
-                        askBuiltPackages plan $ map PackageName pkgNames
+                        let n = PlanName planName
+                        askBuiltPackages n
+                            $ map PackageName pkgNames
         _ -> error $ "Unknown invocation: " ++ show (command, args)

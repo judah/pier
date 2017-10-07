@@ -31,7 +31,7 @@ import qualified Data.HashSet as HS
 Outline:
 
 downloads/stackage/plan/*.yaml
-downloads/hackage/split-1.2.3 for downloaded and unpacked 
+downloads/hackage/split-1.2.3 for downloaded and unpacked
 build/lts-9.6/split/
     bin/{executable-name}
     pkgdb/package.conf
@@ -54,41 +54,52 @@ instance Hashable FlagName
 buildPackageRules :: Rules ()
 buildPackageRules = addWitness buildPackage
 
-data ResolvePackageO = ResolvePackageO BuildPlan PackageName
+data ResolvePackageO = ResolvePackageO PlanName PackageName
     deriving (Show,Typeable,Eq,Generic)
+
 instance Hashable ResolvePackageO
 instance Binary ResolvePackageO
 instance NFData ResolvePackageO
 type instance RuleResult ResolvePackageO = Resolved
 
-data BuiltPackageR = BuiltPackageR BuildPlan Resolved
+data BuiltPackageR = BuiltPackageR PlanName Resolved
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable BuiltPackageR
 instance Binary BuiltPackageR
 instance NFData BuiltPackageR
 type instance RuleResult BuiltPackageR = BuiltPackage
 
+-- ghc --package-db .stake/...text-1234.pkg/db --package text-1234
 data BuiltPackage = BuiltPackage
                         { builtTransitiveDBs :: HS.HashSet FilePath
                         , builtPackageName :: PackageName
                         }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
-askBuiltPackages :: BuildPlan -> [PackageName] -> Action [BuiltPackage]
-askBuiltPackages plan = askWitnesses
-                            . map (BuiltPackageR plan
-                                    . resolvePackage plan)
+newtype BuildPlanDir = BuildPlanDir { unBuildPlanDir :: FilePath }
+
+buildPlanDir :: PlanName -> BuildPlanDir
+buildPlanDir (PlanName n) = BuildPlanDir $ buildArtifact $ n </> "packages"
+
+askBuiltPackages :: PlanName -> [PackageName] -> Action [BuiltPackage]
+askBuiltPackages planName pkgs = do
+    plan <- askBuildPlan planName
+    askWitnesses
+        $ map (BuiltPackageR planName . resolvePackage plan)
+        $ pkgs
 
 buildPackage :: BuiltPackageR -> Action BuiltPackage
-buildPackage (BuiltPackageR plan r) = rerunIfCleaned >> buildResolved plan r
+buildPackage (BuiltPackageR plan r) = do
+    rerunIfCleaned
+    buildResolved plan r
 
-buildResolved :: BuildPlan -> Resolved -> Action BuiltPackage
+buildResolved :: PlanName -> Resolved -> Action BuiltPackage
 buildResolved _ (Resolved Builtin p) = do
     putNormal $ "Built-in " ++ show (packageIdString p)
     return BuiltPackage { builtTransitiveDBs = HS.empty
                         , builtPackageName = packageName p
                         }
-buildResolved plan (Resolved Additional p) = do
+buildResolved planName (Resolved Additional p) = do
     let n = packageIdString p
     -- TODO: what if the .cabal file has a different basename?
     -- Maybe make this a witness too.
@@ -97,8 +108,9 @@ buildResolved plan (Resolved Additional p) = do
                             <.> "cabal"
     need [f]
     gdesc <- liftIO $ readPackageDescription normal f
+    plan <- askBuildPlan planName
     desc <- flattenToDefaultFlags plan gdesc
-    buildFromDesc plan desc
+    buildFromDesc planName desc
 
 flattenToDefaultFlags
     :: BuildPlan -> GenericPackageDescription -> Action PackageDescription
@@ -136,25 +148,28 @@ resolve plan flags node
     isTrue (COr x y) = isTrue x || isTrue y
     isTrue (CAnd x y) = isTrue x && isTrue y
 
-buildFromDesc :: BuildPlan -> PackageDescription -> Action BuiltPackage
+buildFromDesc :: PlanName -> PackageDescription -> Action BuiltPackage
 buildFromDesc plan desc = case fmap libBuildInfo $ library desc of
     Just lib
         | buildable lib -> do
             let deps = [n | Dependency n _ <- targetBuildDepends
                                                 lib]
-            void $ askBuiltPackages plan deps
+            builtDeps <- askBuiltPackages plan deps
             putNormal $ "Building " ++ packageIdString (package desc)
-            return BuiltPackage
+            buildLibrary builtDeps desc
+    _ -> error "buildFromDesc: no library"
+
+buildLibrary :: [BuiltPackage] -> PackageDescription -> Action BuiltPackage
+buildLibrary deps desc = do
+    return BuiltPackage
                 { builtTransitiveDBs = HS.empty
                 , builtPackageName = packageName $ package desc
                 }
-    _ -> error "buildFromDesc: no library"
-
 
 {-
 packageDbRule :: BuildPlan -> Rule ()
 packageDbRule = "build/*/*/pkgdb/package.conf" #> \f [
 
 libraries :: BuildPlan -> Rule ()
-libraries 
+libraries
 -}
