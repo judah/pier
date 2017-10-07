@@ -1,13 +1,11 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Development.Stake.Build where
 
-import Debug.Trace
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Semigroup
 import GHC.Generics hiding (packageName)
-import Control.Exception (throw)
 import Control.Monad ((>=>), void)
-import Data.Yaml
 import qualified Data.HashMap.Strict as HM
 import Development.Shake
 import Development.Shake.Classes
@@ -19,12 +17,10 @@ import Development.Stake.Witness
 import Distribution.Compiler
 import Distribution.Package
 import Distribution.PackageDescription
-import Distribution.PackageDescription.Configuration
 import Distribution.PackageDescription.Parse
 import Distribution.System (buildOS, buildArch)
 import Distribution.Verbosity (normal)
 import Distribution.Version (withinRange)
-import Network.Wreq
 import qualified Data.HashSet as HS
 
 {-
@@ -53,8 +49,7 @@ instance Hashable FlagName
 
 buildPackageRules :: Rules ()
 buildPackageRules = do
-    addOracle $ \(ResolvePackageO plan p) -> do
-        return $ resolvePackage plan p
+    void $ addOracle $ \(ResolvePackageO plan p) -> return $ resolvePackage plan p
     addWitness buildPackage
 
 data ResolvePackageO = ResolvePackageO BuildPlan PackageName
@@ -150,19 +145,14 @@ buildFromDesc plan desc = case fmap libBuildInfo $ library desc of
         | buildable lib -> do
             let deps = [n | Dependency n _ <- targetBuildDepends
                                                 lib]
-            builtDeps_ <- askBuiltPackages plan deps
+            void $ askBuiltPackages plan deps
             putNormal $ "Building " ++ packageIdString (package desc)
             return BuiltPackage
                 { builtTransitiveDBs = HS.empty
                 , builtPackageName = packageName $ package desc
                 }
+    _ -> error "buildFromDesc: no library"
 
-    Nothing -> error "buildFromDesc: no library"
-
-
--- TODO: handle dependencies between same package in different LTS's?
-
--- TODO: provide BuildPlan as an oracle?
 
 {-
 packageDbRule :: BuildPlan -> Rule ()

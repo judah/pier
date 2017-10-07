@@ -22,8 +22,8 @@ addWitness
     -> Rules ()
 addWitness act = addBuiltinRule noLint $ \(WitnessQ q) old depsChanged
                     -> case old of
-    Just old | not depsChanged -> return $ RunResult ChangedNothing old
-                                         $ decode' old
+    Just old' | not depsChanged -> return $ RunResult ChangedNothing old'
+                                         $ decode' old'
     _ -> do
             new <- WitnessA <$> act q
             return $ RunResult

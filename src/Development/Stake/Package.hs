@@ -9,7 +9,6 @@ import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath
 import Development.Stake.Core
-import Development.Stake.Witness
 import Distribution.Package
 import Distribution.Version
 import GHC.Generics (Generic(..))
@@ -32,16 +31,15 @@ instance Hashable DownloadedPackage where
 downloadCabalPackageRule :: Rules ()
 -- TODO: avoid clashes?
 downloadCabalPackageRule = "downloads/hackage/*/*.cabal" #> \f (n:_) -> do
-    let downloadsDir = artifact $ "downloads/hackage"
-    let outDir = downloadsDir </> n
-    let tarPath = outDir <.> "tar.gz"
+    let tarPath = takeDirectory f <.> "tar.gz"
+    let outputDirParent = takeDirectory $ takeDirectory f
     createParentIfMissing tarPath
-    createDirectoryIfMissing' downloadsDir
     cmd_ "curl"
         (hackageUrl </> "package" </> n </> n <.> "tar.gz")
         ["-Ss", "-o", tarPath]
-    cmd_ "tar" ["-xzf", tarPath, "-C", downloadsDir]
+    cmd_ "tar" ["-xzf", tarPath, "-C", outputDirParent]
 
+hackageUrl :: String
 hackageUrl = "http://hackage.haskell.org"
 
 cabalPlanRules :: BuildPlan -> Rules ()

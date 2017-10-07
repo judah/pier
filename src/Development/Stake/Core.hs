@@ -43,6 +43,7 @@ rerunIfCleaned = need [cleanFile]
 cleanFile :: FilePath
 cleanFile = artifact "build/sentinel"
 
+cleaner :: Rules ()
 cleaner = cleanFile %> \f -> do
     Stdout c <- cmd "uuidgen"
     writeFile' f c

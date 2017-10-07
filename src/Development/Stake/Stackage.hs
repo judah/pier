@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Development.Stake.Stackage where
 
 import GHC.Generics
@@ -8,7 +9,6 @@ import qualified Data.ByteString as B
 import Control.Exception (throw)
 import Control.Lens ((^.))
 import Control.Monad ((>=>))
-import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as L
 import qualified Data.HashMap.Strict as HM
 import Data.List (isPrefixOf)
