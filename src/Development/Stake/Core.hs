@@ -1,5 +1,17 @@
 {-# LANGUAGE DeriveAnyClass #-}
-module Development.Stake.Core where
+module Development.Stake.Core
+    ( -- * Build directory
+      runStake
+    , artifact
+    , (#>)
+      -- * Cleaning
+    , rerunIfCleaned
+    , cleanBuild
+    , cleanAll
+      -- * Directory utilities
+    , createParentIfMissing
+
+    ) where
 
 import Control.Monad.IO.Class
 import Development.Shake
@@ -29,12 +41,16 @@ runStake rules = shakeArgsWith shakeOptions
                         , shakeVerbosity = Chatty
                         } [] $ \[] args -> return $ Just $ cleaner >> rules args
 
+runClean :: FilePattern -> Rules ()
+runClean pat = action $ removeFilesAfter stakeDir [pat]
+
+cleanBuild, cleanAll :: Rules ()
+cleanBuild = runClean "build"
+cleanAll = runClean ""
+
 createParentIfMissing :: MonadIO m => FilePath -> m ()
 createParentIfMissing path
-    = createDirectoryIfMissing' (takeDirectory path)
-
-createDirectoryIfMissing' :: MonadIO m => FilePath -> m ()
-createDirectoryIfMissing' = liftIO . createDirectoryIfMissing True
+    = liftIO $ createDirectoryIfMissing True (takeDirectory path)
 
 
 rerunIfCleaned :: Action ()

@@ -1,7 +1,15 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Development.Stake.Stackage where
+module Development.Stake.Stackage
+    ( buildPlanRules
+    , readPlan
+    , PlanName(..)
+    , BuildPlan(..)
+    , resolvePackage
+    , Resolved(..)
+    , Way(..)
+    ) where
 
 import GHC.Generics
 import Data.Binary.Orphans ()
@@ -109,3 +117,6 @@ buildPlanRules = do
 newtype ReadPlan = ReadPlan PlanName
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 type instance RuleResult ReadPlan = BuildPlan
+
+readPlan :: PlanName -> Action BuildPlan
+readPlan = askWitness . ReadPlan

@@ -1,5 +1,9 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Development.Stake.Witness where
+module Development.Stake.Witness
+    ( addWitness
+    , askWitness
+    , askWitnesses
+    ) where
 
 import Data.Binary (encode, decode)
 import qualified Data.ByteString as BS

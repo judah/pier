@@ -1,11 +1,15 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Development.Stake.Build where
+module Development.Stake.Build
+    ( buildPackageRules
+    , askBuiltPackages
+    )
+    where
 
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Semigroup
 import GHC.Generics hiding (packageName)
-import Control.Monad ((>=>), void)
+import Control.Monad (void)
 import qualified Data.HashMap.Strict as HM
 import Development.Shake
 import Development.Shake.Classes
@@ -48,9 +52,7 @@ that it got, including their hashes
 instance Hashable FlagName
 
 buildPackageRules :: Rules ()
-buildPackageRules = do
-    void $ addOracle $ \(ResolvePackageO plan p) -> return $ resolvePackage plan p
-    addWitness buildPackage
+buildPackageRules = addWitness buildPackage
 
 data ResolvePackageO = ResolvePackageO BuildPlan PackageName
     deriving (Show,Typeable,Eq,Generic)
@@ -58,9 +60,6 @@ instance Hashable ResolvePackageO
 instance Binary ResolvePackageO
 instance NFData ResolvePackageO
 type instance RuleResult ResolvePackageO = Resolved
-
-resolvePackageA :: BuildPlan -> PackageName -> Action Resolved
-resolvePackageA plan = askOracle . ResolvePackageO plan
 
 data BuiltPackageR = BuiltPackageR BuildPlan Resolved
     deriving (Show,Typeable,Eq,Generic)
@@ -75,12 +74,10 @@ data BuiltPackage = BuiltPackage
                         }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
-askBuiltPackage :: BuildPlan -> PackageName -> Action BuiltPackage
-askBuiltPackage plan = resolvePackageA plan >=> askWitness . BuiltPackageR plan
-
 askBuiltPackages :: BuildPlan -> [PackageName] -> Action [BuiltPackage]
-askBuiltPackages plan = mapM (resolvePackageA plan)
-                            >=> askWitnesses . map (BuiltPackageR plan)
+askBuiltPackages plan = askWitnesses
+                            . map (BuiltPackageR plan
+                                    . resolvePackage plan)
 
 buildPackage :: BuiltPackageR -> Action BuiltPackage
 buildPackage (BuiltPackageR plan r) = rerunIfCleaned >> buildResolved plan r
