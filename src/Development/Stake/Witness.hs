@@ -30,6 +30,7 @@ addWitness act = addBuiltinRule noLint $ \(WitnessQ q) old depsChanged
                                          $ decode' old'
     _ -> do
             new <- WitnessA <$> act q
+            -- TODO: if decode fails, treat it as changed
             return $ RunResult
                     (if fmap decode' old == Just new
                         then ChangedRecomputeSame
