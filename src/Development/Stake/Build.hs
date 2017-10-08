@@ -97,7 +97,6 @@ buildPackage (BuiltPackageR plan r) = do
 
 buildResolved :: PlanName -> Resolved -> Action BuiltPackage
 buildResolved _ (Resolved Builtin p) = do
-    putNormal $ "Built-in " ++ show (packageIdString p)
     return BuiltPackage { builtTransitiveDBs = HS.empty
                         , builtPackageName = packageName p
                         }
@@ -112,8 +111,7 @@ buildResolved planName (Resolved Additional p) = do
     buildFromDesc planName plan desc
 
 packageSourceDir :: PackageId -> FilePath
-packageSourceDir pkg = artifact $ "downloads/hackage"
-                                            </> packageIdString pkg
+packageSourceDir pkg = artifact $ "downloads/hackage" </> display pkg
 
 flattenToDefaultFlags
     :: BuildPlan -> GenericPackageDescription -> Action PackageDescription
@@ -165,8 +163,7 @@ buildFromDesc planName plan desc
             let deps = [n | Dependency n _ <- targetBuildDepends
                                                 lbi]
             builtDeps <- askBuiltPackages planName deps
-            putNormal $ "Building " ++ packageIdString (package desc)
-                            ++ show builtDeps
+            putNormal $ "Building " ++ display (package desc)
             buildLibrary planName plan builtDeps desc lib
     | otherwise = error "buildFromDesc: no library"
 
@@ -233,7 +230,6 @@ buildLibrary planName plan deps desc lib
                         $ foldMap builtTransitiveDBs deps
                 , builtPackageName = packageName $ package desc
                 }
-    putNormal $ show res
     return res
 
 pathsModule :: PackageName -> ModuleName
@@ -248,7 +244,7 @@ buildPlanDir (PlanName n) = buildArtifact $ n </> "packages"
 packageBuildDir :: PlanName -> PackageId -> FilePath
 packageBuildDir plan pkg = buildArtifact $ renderPlanName plan
                                     </> "packages"
-                                    </> packageIdString pkg
+                                    </> display pkg
 
 packageDbFile :: FilePath
 packageDbFile = "db/pkg.db"
