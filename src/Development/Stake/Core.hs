@@ -45,7 +45,7 @@ runStake :: ([String] -> Rules ()) -> IO ()
 runStake rules = shakeArgsWith shakeOptions
                         { shakeFiles = stakeDir
                         , shakeProgress = progressSimple
-                        , shakeVerbosity = Chatty
+                        , shakeVerbosity = Normal
                         } [] $ \[] args -> return $ Just $ cleaner >> rules args
 
 runClean :: FilePattern -> Rules ()

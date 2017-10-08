@@ -193,26 +193,31 @@ buildLibrary planName plan deps desc lib
                     $ otherModules lbi ++ exposedModules lib
     -- TODO: Actual LTS version ghc.
     -- TODO: dump output only if the command fails.
-    cmd_ "ghc"
-        "-ddump-to-file" "-keep-tmp-files"
-        "-this-unit-id" (display $ package desc)
-        "-hide-all-packages"
-        (concat $ map (\p -> ["-package-db", p])
+    command_ [] "ghc" $
+        [ "-ddump-to-file"
+        , "-this-unit-id", display $ package desc
+        , "-hide-all-packages"
+        , "-i"
+        , "-hidir", hiDir
+        , "-odir", oDir
+        ]
+        ++
+        concat (map (\p -> ["-package-db", p])
                 $ HS.toList
                 $ foldMap builtTransitiveDBs deps)
-        (concat [["-package", display $ builtPackageName d]
-                | d <- deps])
-        [ "-i", "-hidir", hiDir, "-odir", oDir]
-        (map ("-i"++) $ sourceDirs ++ [buildDir </> "paths"])
-        (map ("-I"++) $ map pkgDir $ includeDirs lbi)
-        (map ("-X" ++)
-            $ display (fromMaybe Haskell2010 $ defaultLanguage lbi)
+        ++
+        concat [["-package", display $ builtPackageName d]
+                | d <- deps]
+        ++ map ("-i"++) (sourceDirs ++ [buildDir </> "paths"])
+        ++ map ("-I"++) (map pkgDir $ includeDirs lbi)
+        ++ map ("-X" ++)
+            (display (fromMaybe Haskell2010 $ defaultLanguage lbi)
             : map display (defaultExtensions lbi ++ oldExtensions lbi))
-        (concat [opts | (GHC,opts) <- options lbi])
-        (map ("-optP" ++) $ cppOptions lbi)
-        modules
+        ++ concat [opts | (GHC,opts) <- options lbi]
+        ++ map ("-optP" ++) (cppOptions lbi)
+        ++ modules
     let pkgDb = buildDir </> "db"
-    cmd_ "ghc-pkg" ["init", pkgDb]
+    command_ [] "ghc-pkg" ["init", pkgDb]
     let specPath = buildDir </> "spec"
     writeFile' specPath $ unlines
         [ "name: " ++ display (packageName (package desc))
@@ -223,7 +228,7 @@ buildLibrary planName plan deps desc lib
         , "hidden-modules: " ++ unwords (map display $ otherModules lbi)
         , "import-dirs: ${pkgroot}/hi"
         ]
-    cmd_ "ghc-pkg" ["--package-db", pkgDb, "register", specPath]
+    command_ [] "ghc-pkg" ["--package-db", pkgDb, "register", specPath]
     let res = BuiltPackage
                 { builtTransitiveDBs =
                     HS.insert (buildDir </> "db")
