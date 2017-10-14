@@ -42,11 +42,7 @@ pat #> act = pat' %> \f -> case filePattern pat' f of
 infixl #>
 
 runStake :: Rules () -> IO ()
-runStake rules = shakeArgsWith shakeOptions
-                        { shakeFiles = stakeDir
-                        , shakeProgress = progressSimple
-                        , shakeVerbosity = Normal
-                        } [] $ \[] _ -> return $ Just $ cleaner >> rules
+runStake = shakeArgs shakeOptions
 
 runClean :: FilePattern -> Rules ()
 runClean pat = action $ removeFilesAfter stakeDir [pat]
