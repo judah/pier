@@ -46,7 +46,7 @@ runStake rules = shakeArgsWith shakeOptions
                         { shakeFiles = stakeDir
                         , shakeProgress = progressSimple
                         , shakeVerbosity = Normal
-                        } [] $ \[] args -> return $ Just $ cleaner >> rules
+                        } [] $ \[] _ -> return $ Just $ cleaner >> rules
 
 runClean :: FilePattern -> Rules ()
 runClean pat = action $ removeFilesAfter stakeDir [pat]

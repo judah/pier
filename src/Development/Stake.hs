@@ -11,7 +11,7 @@ import Distribution.Package
 import Options.Applicative hiding (action)
 import System.Environment
 
-data Command = Clean | CleanAll | Build PlanName PackageName
+data Command = Clean | CleanAll | Build PlanName [PackageName]
 
 cleanCommand :: Parser Command
 cleanCommand = pure Clean
@@ -20,12 +20,13 @@ cleanAllCommand :: Parser Command
 cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser Command
-buildCommand = Build <$> planName <*> packageName
+buildCommand = Build <$> planName <*> packageNames
   where
-    planName = PlanName <$> strOption ( long "plan"
-                                     <> short 'p'
-                                     <> metavar "PLANNAME" )
-    packageName = PackageName <$> strArgument ( metavar "PACKAGENAME" )
+    planName = fmap PlanName $ strOption ( long "plan"
+                                        <> short 'p'
+                                        <> metavar "PLANNAME" )
+    packageNames = (fmap . fmap) PackageName $ many 
+                                             $ strArgument ( metavar "PACKAGENAME" )
                 
 input :: Parser Command
 input = subparser $
@@ -42,7 +43,7 @@ runWithOptions cmd = do
     Clean -> cleanBuild
     CleanAll -> cleanAll
     Build plan packages -> action $ do
-        askBuiltPackages plan [packages]
+        askBuiltPackages plan packages
 
 main :: IO ()
 main = do
