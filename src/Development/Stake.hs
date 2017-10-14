@@ -1,25 +1,56 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Development.Stake (main) where
 
+import Data.Monoid ((<>))
 import Development.Shake hiding (command)
 import Development.Stake.Build
 import Development.Stake.Core
 import Development.Stake.Package
 import Development.Stake.Stackage
 import Distribution.Package
+import Options.Applicative hiding (action)
+import System.Environment
+
+data Command = Clean | CleanAll | Build PlanName [PackageName]
+
+cleanCommand :: Parser Command
+cleanCommand = pure Clean
+
+cleanAllCommand :: Parser Command
+cleanAllCommand = pure CleanAll
+
+buildCommand :: Parser Command
+buildCommand = Build <$> planName <*> packageNames
+  where
+    planName = fmap PlanName $ strOption ( long "plan"
+                                        <> short 'p'
+                                        <> metavar "PLANNAME" )
+    packageNames = (fmap . fmap) PackageName $ many 
+                                             $ strArgument ( metavar "PACKAGENAME" )
+                
+input :: Parser Command
+input = subparser $
+    command "clean" (info cleanCommand  (progDesc "Clean project")) <>
+    command "clean-all" (info cleanAllCommand (progDesc "Clean project & dependencies")) <>
+    command "build" (info buildCommand (progDesc "Build Project"))
+
+opts :: ParserInfo Command
+opts = info input mempty
+
+runWithOptions :: Command -> Rules ()
+runWithOptions cmd = do
+  case cmd of
+    Clean -> cleanBuild
+    CleanAll -> cleanAll
+    Build plan packages -> action $ do
+        askBuiltPackages plan packages
 
 main :: IO ()
-main = runStake $ \(command:args) -> do
-    downloadCabalPackageRule
-    buildPlanRules
-    buildPackageRules
-    case command of
-        "clean" -> cleanBuild
-        "clean-all" -> cleanAll
-        "build"
-            | planName:pkgNames <- args
-                -> action $ do
-                        let n = PlanName planName
-                        askBuiltPackages n
-                            $ map PackageName pkgNames
-        _ -> error $ "Unknown invocation: " ++ show (command, args)
+main = do
+    res <- execParser opts
+    --pass no args to shake
+    withArgs [] $ runStake $ do
+        downloadCabalPackageRule
+        buildPlanRules
+        buildPackageRules
+        runWithOptions res
