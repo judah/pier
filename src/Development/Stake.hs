@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Development.Stake (main) where
 
+import Data.Monoid ((<>))
 import Development.Shake hiding (command)
 import Development.Stake.Build
 import Development.Stake.Core
@@ -48,10 +49,12 @@ opts = info input mempty
 runWithOptions :: ParserResult Command -> Rules ()
 runWithOptions = undefined
 
+
 main :: IO ()
 main = runStake $ \args -> do
     downloadCabalPackageRule
     buildPlanRules
     buildPackageRules
     runWithOptions $ execParserPure undefined opts args
+
 

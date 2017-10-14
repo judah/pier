@@ -1,7 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Development.Stake.Package
     ( downloadCabalPackageRule
-    , packageIdString
     ) where
 
 import Data.Version (showVersion)
@@ -12,11 +11,6 @@ import Development.Stake.Core
 import Distribution.Package
 import GHC.Generics (Generic(..))
 import Development.Stake.Stackage ()
-
-packageIdString :: PackageId -> String
-packageIdString p = unPackageName (packageName p)
-                                ++ "-"
-                                ++ showVersion (packageVersion p)
 
 
 newtype DownloadedPackage = DownloadedPackage PackageId

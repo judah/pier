@@ -3,7 +3,7 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Development.Stake.Stackage
     ( buildPlanRules
-    , readPlan
+    , askBuildPlan
     , PlanName(..)
     , BuildPlan(..)
     , resolvePackage
@@ -118,5 +118,5 @@ newtype ReadPlan = ReadPlan PlanName
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 type instance RuleResult ReadPlan = BuildPlan
 
-readPlan :: PlanName -> Action BuildPlan
-readPlan = askWitness . ReadPlan
+askBuildPlan :: PlanName -> Action BuildPlan
+askBuildPlan = askWitness . ReadPlan

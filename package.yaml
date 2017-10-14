@@ -19,6 +19,7 @@ dependencies:
   - lens
   - shake
   - unordered-containers
+  - optparse-applicative
   - text
   - wreq
   - yaml

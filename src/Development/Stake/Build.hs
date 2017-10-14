@@ -6,7 +6,9 @@ module Development.Stake.Build
     )
     where
 
+import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import GHC.Generics hiding (packageName)
 import Control.Monad (void)
@@ -19,19 +21,22 @@ import Development.Stake.Package
 import Development.Stake.Stackage
 import Development.Stake.Witness
 import Distribution.Compiler
+import Distribution.ModuleName
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Parse
+import Distribution.Text
 import Distribution.System (buildOS, buildArch)
 import Distribution.Verbosity (normal)
-import Distribution.Version (withinRange)
+import Distribution.Version (withinRange, Version(..))
 import qualified Data.HashSet as HS
+import Language.Haskell.Extension
 
 {-
 Outline:
 
 downloads/stackage/plan/*.yaml
-downloads/hackage/split-1.2.3 for downloaded and unpacked 
+downloads/hackage/split-1.2.3 for downloaded and unpacked
 build/lts-9.6/split/
     bin/{executable-name}
     pkgdb/package.conf
@@ -52,53 +57,61 @@ that it got, including their hashes
 instance Hashable FlagName
 
 buildPackageRules :: Rules ()
-buildPackageRules = addWitness buildPackage
+buildPackageRules = do
+    addWitness buildPackage
+    pathsModuleRule
 
-data ResolvePackageO = ResolvePackageO BuildPlan PackageName
+data ResolvePackageO = ResolvePackageO PlanName PackageName
     deriving (Show,Typeable,Eq,Generic)
+
 instance Hashable ResolvePackageO
 instance Binary ResolvePackageO
 instance NFData ResolvePackageO
 type instance RuleResult ResolvePackageO = Resolved
 
-data BuiltPackageR = BuiltPackageR BuildPlan Resolved
+data BuiltPackageR = BuiltPackageR PlanName Resolved
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable BuiltPackageR
 instance Binary BuiltPackageR
 instance NFData BuiltPackageR
 type instance RuleResult BuiltPackageR = BuiltPackage
 
+-- ghc --package-db .stake/...text-1234.pkg/db --package text-1234
 data BuiltPackage = BuiltPackage
                         { builtTransitiveDBs :: HS.HashSet FilePath
                         , builtPackageName :: PackageName
                         }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
-askBuiltPackages :: BuildPlan -> [PackageName] -> Action [BuiltPackage]
-askBuiltPackages plan = askWitnesses
-                            . map (BuiltPackageR plan
-                                    . resolvePackage plan)
+askBuiltPackages :: PlanName -> [PackageName] -> Action [BuiltPackage]
+askBuiltPackages planName pkgs = do
+    plan <- askBuildPlan planName
+    askWitnesses
+        $ map (BuiltPackageR planName . resolvePackage plan)
+        $ pkgs
 
 buildPackage :: BuiltPackageR -> Action BuiltPackage
-buildPackage (BuiltPackageR plan r) = rerunIfCleaned >> buildResolved plan r
+buildPackage (BuiltPackageR plan r) = do
+    rerunIfCleaned
+    buildResolved plan r
 
-buildResolved :: BuildPlan -> Resolved -> Action BuiltPackage
+buildResolved :: PlanName -> Resolved -> Action BuiltPackage
 buildResolved _ (Resolved Builtin p) = do
-    putNormal $ "Built-in " ++ show (packageIdString p)
     return BuiltPackage { builtTransitiveDBs = HS.empty
                         , builtPackageName = packageName p
                         }
-buildResolved plan (Resolved Additional p) = do
-    let n = packageIdString p
+buildResolved planName (Resolved Additional p) = do
     -- TODO: what if the .cabal file has a different basename?
     -- Maybe make this a witness too.
-    let f = artifact $ "downloads/hackage" </> n
-                            </> unPackageName (pkgName p)
-                            <.> "cabal"
+    let f = packageSourceDir p </> unPackageName (pkgName p) <.> "cabal"
     need [f]
     gdesc <- liftIO $ readPackageDescription normal f
+    plan <- askBuildPlan planName
     desc <- flattenToDefaultFlags plan gdesc
-    buildFromDesc plan desc
+    buildFromDesc planName plan desc
+
+packageSourceDir :: PackageId -> FilePath
+packageSourceDir pkg = artifact $ "downloads/hackage" </> display pkg
 
 flattenToDefaultFlags
     :: BuildPlan -> GenericPackageDescription -> Action PackageDescription
@@ -121,40 +134,160 @@ resolve
 resolve plan flags node
     = sconcat
         $ condTreeData node :|
-        [resolve plan flags t | (cond,t,_) <- condTreeComponents node
-                                , isTrue cond]
+        [ resolve plan flags t
+        | (cond,ifTrue,ifFalse) <- condTreeComponents node
+        , Just t <- [if isTrue plan flags cond
+                        then Just ifTrue
+                        else ifFalse]]
+
+isTrue :: BuildPlan -> HM.HashMap FlagName Bool -> Condition ConfVar -> Bool
+isTrue plan flags = loop
   where
-    isTrue (Var (Flag f))
+    loop (Var (Flag f))
         | Just x <- HM.lookup f flags = x
         | otherwise = error $ "Unknown flag: " ++ show f
-    isTrue (Var (Impl GHC range)) = withinRange (ghcVersion plan) range
-    isTrue (Var (Impl _ _)) = False
-    isTrue (Var (OS os)) = os == buildOS
-    isTrue (Var (Arch arch)) = arch == buildArch
-    isTrue (Lit x) = x
-    isTrue (CNot x) = isTrue x
-    isTrue (COr x y) = isTrue x || isTrue y
-    isTrue (CAnd x y) = isTrue x && isTrue y
+    loop (Var (Impl GHC range)) = withinRange (ghcVersion plan) range
+    loop (Var (Impl _ _)) = False
+    loop (Var (OS os)) = os == buildOS
+    loop (Var (Arch arch)) = arch == buildArch
+    loop (Lit x) = x
+    loop (CNot x) = not $ loop x
+    loop (COr x y) = loop x || loop y
+    loop (CAnd x y) = loop x && loop y
 
-buildFromDesc :: BuildPlan -> PackageDescription -> Action BuiltPackage
-buildFromDesc plan desc = case fmap libBuildInfo $ library desc of
-    Just lib
-        | buildable lib -> do
+buildFromDesc :: PlanName -> BuildPlan -> PackageDescription -> Action BuiltPackage
+buildFromDesc planName plan desc
+    | Just lib <- library desc
+    , let lbi = libBuildInfo lib
+    , buildable lbi = do
             let deps = [n | Dependency n _ <- targetBuildDepends
-                                                lib]
-            void $ askBuiltPackages plan deps
-            putNormal $ "Building " ++ packageIdString (package desc)
-            return BuiltPackage
-                { builtTransitiveDBs = HS.empty
+                                                lbi]
+            builtDeps <- askBuiltPackages planName deps
+            putNormal $ "Building " ++ display (package desc)
+            buildLibrary planName plan builtDeps desc lib
+    | otherwise = error "buildFromDesc: no library"
+
+buildLibrary
+    :: PlanName -> BuildPlan -> [BuiltPackage]
+    -> PackageDescription -> Library
+    -> Action BuiltPackage
+buildLibrary planName plan deps desc lib
+  | null (exposedModules lib) = return BuiltPackage
+                { builtTransitiveDBs =
+                        foldMap builtTransitiveDBs deps
                 , builtPackageName = packageName $ package desc
                 }
-    _ -> error "buildFromDesc: no library"
 
+  | otherwise = do
+    let lbi = libBuildInfo lib
+    let pkgDir = (packageSourceDir (package desc) </>)
+    let sourceDirs = (\ss -> if null ss then [pkgDir "."] else ss)
+                        $ map pkgDir
+                        $ hsSourceDirs lbi
+    let buildDir = packageBuildDir planName (package desc)
+    liftIO $ removeFiles buildDir ["//*"]
+    let hiDir = buildDir </> "hi"
+    let oDir = buildDir </> "o"
+    modules <- mapM (findModule buildDir (packageName $ package desc)
+                            sourceDirs)
+                    $ otherModules lbi ++ exposedModules lib
+    -- TODO: Actual LTS version ghc.
+    -- TODO: dump output only if the command fails.
+    command_ [] "ghc" $
+        [ "-ddump-to-file"
+        , "-this-unit-id", display $ package desc
+        , "-hide-all-packages"
+        , "-i"
+        , "-hidir", hiDir
+        , "-odir", oDir
+        ]
+        ++
+        concat (map (\p -> ["-package-db", p])
+                $ HS.toList
+                $ foldMap builtTransitiveDBs deps)
+        ++
+        concat [["-package", display $ builtPackageName d]
+                | d <- deps]
+        ++ map ("-i"++) (sourceDirs ++ [buildDir </> "paths"])
+        ++ map ("-I"++) (map pkgDir $ includeDirs lbi)
+        ++ map ("-X" ++)
+            (display (fromMaybe Haskell2010 $ defaultLanguage lbi)
+            : map display (defaultExtensions lbi ++ oldExtensions lbi))
+        ++ concat [opts | (GHC,opts) <- options lbi]
+        ++ map ("-optP" ++) (cppOptions lbi)
+        ++ modules
+    let pkgDb = buildDir </> "db"
+    command_ [] "ghc-pkg" ["init", pkgDb]
+    let specPath = buildDir </> "spec"
+    writeFile' specPath $ unlines
+        [ "name: " ++ display (packageName (package desc))
+        , "version: " ++ display (packageVersion (package desc))
+        , "id: " ++ display (package desc)
+        , "key: " ++ display (package desc)
+        , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
+        , "hidden-modules: " ++ unwords (map display $ otherModules lbi)
+        , "import-dirs: ${pkgroot}/hi"
+        ]
+    command_ [] "ghc-pkg" ["--package-db", pkgDb, "register", specPath]
+    let res = BuiltPackage
+                { builtTransitiveDBs =
+                    HS.insert (buildDir </> "db")
+                        $ foldMap builtTransitiveDBs deps
+                , builtPackageName = packageName $ package desc
+                }
+    return res
 
-{-
-packageDbRule :: BuildPlan -> Rule ()
-packageDbRule = "build/*/*/pkgdb/package.conf" #> \f [
+pathsModule :: PackageName -> ModuleName
+pathsModule p = fromString $ "Paths_" ++ map fixHyphen (display p)
+  where
+    fixHyphen '-' = '_'
+    fixHyphen c = c
 
-libraries :: BuildPlan -> Rule ()
-libraries 
--}
+buildPlanDir :: PlanName -> FilePath
+buildPlanDir (PlanName n) = buildArtifact $ n </> "packages"
+
+packageBuildDir :: PlanName -> PackageId -> FilePath
+packageBuildDir plan pkg = buildArtifact $ renderPlanName plan
+                                    </> "packages"
+                                    </> display pkg
+
+packageDbFile :: FilePath
+packageDbFile = "db/pkg.db"
+
+-- TODO: this won't work when we need to do preprocessing.
+moduleStr :: ModuleName -> String
+moduleStr = intercalate "." . components
+
+findModule :: FilePath -> PackageName -> [FilePath] -> ModuleName -> Action FilePath
+findModule buildDir pkgName paths m
+    | m == pathsModule pkgName = do
+        let f = buildDir </> "paths" </> display m <.> "hs"
+        need [f]
+        return f
+    | otherwise  = loop paths
+  where
+    loop [] = error $ "Missing module " ++ display m
+                        ++ "; searched " ++ show paths
+    loop (f:fs) = do
+        let g = f </> toFilePath m <.> "hs"
+        exists <- doesFileExist g
+        if exists
+            then return g
+            else loop fs
+
+pathsModuleRule :: Rules ()
+pathsModuleRule =
+    "build/*/packages/*/paths/*.hs" #> \f [lts,pkg',modName] -> do
+        plan <- askBuildPlan $ PlanName lts
+        Just pkg <- return $ simpleParse pkg'
+        createParentIfMissing f
+        writeFile' f $ unlines
+            [ "{-# LANGUAGE CPP #-}"
+            , "module " ++ modName ++ " (version) where"
+            , "import Data.Version (Version(..))"
+            , "version :: Version"
+            , "version = Version " ++ show (versionBranch
+                                                $ pkgVersion pkg)
+                                    ++ ""
+                            ++ " []" -- tags are deprecated
+            ]
