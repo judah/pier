@@ -18,6 +18,7 @@ dependencies:
   - hashable
   - lens
   - shake
+  - transformers
   - unordered-containers
   - text
   - wreq

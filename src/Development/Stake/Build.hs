@@ -6,12 +6,16 @@ module Development.Stake.Build
     )
     where
 
+import Control.Applicative ((<|>))
+import Control.Monad (guard, msum, void)
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import GHC.Generics hiding (packageName)
-import Control.Monad (void)
 import qualified Data.HashMap.Strict as HM
 import Development.Shake
 import Development.Shake.Classes
@@ -31,6 +35,7 @@ import Distribution.Verbosity (normal)
 import Distribution.Version (withinRange, Version(..))
 import qualified Data.HashSet as HS
 import Language.Haskell.Extension
+import qualified System.Directory as Directory
 
 {-
 Outline:
@@ -188,8 +193,9 @@ buildLibrary planName plan deps desc lib
     liftIO $ removeFiles buildDir ["//*"]
     let hiDir = buildDir </> "hi"
     let oDir = buildDir </> "o"
-    modules <- mapM (findModule buildDir (packageName $ package desc)
-                            sourceDirs)
+    modules <- mapM (findModule plan lbi buildDir pkgDir
+                        (packageName $ package desc)
+                        sourceDirs)
                     $ otherModules lbi ++ exposedModules lib
     -- TODO: Actual LTS version ghc.
     -- TODO: dump output only if the command fails.
@@ -215,6 +221,8 @@ buildLibrary planName plan deps desc lib
             : map display (defaultExtensions lbi ++ oldExtensions lbi))
         ++ concat [opts | (GHC,opts) <- options lbi]
         ++ map ("-optP" ++) (cppOptions lbi)
+        -- TODO: configurable
+        ++ ["-O0"]
         ++ modules
     let pkgDb = buildDir </> "db"
     command_ [] "ghc-pkg" ["init", pkgDb]
@@ -254,17 +262,31 @@ packageBuildDir plan pkg = buildArtifact $ renderPlanName plan
 packageDbFile :: FilePath
 packageDbFile = "db/pkg.db"
 
--- TODO: this won't work when we need to do preprocessing.
 moduleStr :: ModuleName -> String
 moduleStr = intercalate "." . components
 
-findModule :: FilePath -> PackageName -> [FilePath] -> ModuleName -> Action FilePath
-findModule buildDir pkgName paths m
+-- TODO: Organize the arguments to this function better.
+findModule
+    :: BuildPlan
+    -> BuildInfo
+    -> FilePath -- ^ Build directory for outputs of this rule
+    -> (FilePath -> FilePath) -- ^ Function to resolve relative source paths
+                              -- within this package
+    -> PackageName
+    -> [FilePath]             -- Source directory to check
+    -> ModuleName
+    -> Action FilePath
+findModule plan bi buildDir pkgDir pkgName paths m
     | m == pathsModule pkgName = do
         let f = buildDir </> "paths" </> display m <.> "hs"
         need [f]
         return f
-    | otherwise  = loop paths
+    | otherwise  = do
+        found <- runMaybeT $ msum $ map (search plan bi m buildDir pkgDir) paths
+        case found of
+            Nothing -> error $ "Missing module " ++ display m
+                            ++ "; searched " ++ show paths
+            Just f -> return f
   where
     loop [] = error $ "Missing module " ++ display m
                         ++ "; searched " ++ show paths
@@ -274,6 +296,45 @@ findModule buildDir pkgName paths m
         if exists
             then return g
             else loop fs
+
+search
+    :: BuildPlan
+    -> BuildInfo
+    -> ModuleName
+    -> FilePath -- ^ Build directory for outputs
+    -> (FilePath -> FilePath) -- ^ Resolve relative source paths
+    -> FilePath -- ^ Source directory to check
+    -> MaybeT Action FilePath
+search plan bi m buildDir pkgDir srcDir = existing <|> genHsc2hs
+  where
+    existing = let f = srcDir </> toFilePath m <.> "hs"
+                 in exists f >> return f
+    genHsc2hs = do
+        let input = srcDir </> toFilePath m <.> "hsc"
+        let output = buildDir </> "hsc2hs" </> toFilePath m <.> "hs"
+        exists input
+        createParentIfMissing output
+        lift $ command_ [] "hsc2hs"
+             $ ["-o", output
+               , input
+               ]
+               -- TODO: CPP options?
+               ++ ["--cflag=" ++ f | f <- ccOptions bi]
+               ++ ["-I" ++ pkgDir f | f <- "" : includeDirs bi]
+               ++ ["-D__GLASGOW_HASKELL__=" ++ cppVersion (ghcVersion plan)]
+        return output
+
+
+cppVersion :: Version -> String
+cppVersion v = case versionBranch v of
+    (v1:v2:_) -> show v1 ++ if v2 < 10 then '0':show v2 else show v2
+    _ -> error $ "cppVersion: " ++ display v
+
+exists :: MonadIO m => FilePath -> MaybeT m ()
+exists f = liftIO (Directory.doesFileExist f) >>= guard
+
+
+-- TODO: more build-y
 
 pathsModuleRule :: Rules ()
 pathsModuleRule =
