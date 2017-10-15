@@ -1,0 +1,29 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/ruby:2.1.10
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}
+            - stack-cache-{{ arch }}-{{ .Branch }}
+            - stack-cache-{{ arch }}-master
+      - run:
+          command: |
+            echo 'export PATH=$HOME/.local/bin:$PATH' >> $BASH_ENV
+            mkdir -p $HOME/.local/bin
+      - run:
+          command: |
+            sudo apt-get install libgmp3-dev
+            mkdir -p $HOME/.local/bin
+            curl -L https://github.com/commercialhaskell/stack/releases/download/v1.4.0/stack-1.4.0-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
+      - run: stack --no-terminal setup
+      - run: stack --no-terminal build --only-dependencies --fast --no-terminal
+      - run: stack --no-terminal build --fast --no-terminal
+      - save_cache:
+            key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}
+            paths:
+                - ~/.stack
+                - .stack-work
