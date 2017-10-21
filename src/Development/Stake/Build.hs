@@ -26,6 +26,7 @@ import Development.Stake.Stackage
 import Development.Stake.Witness
 import Distribution.Compiler
 import Distribution.ModuleName
+import qualified Distribution.InstalledPackageInfo as IP
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Parse
@@ -85,6 +86,7 @@ type instance RuleResult BuiltPackageR = BuiltPackage
 data BuiltPackage = BuiltPackage
                         { builtTransitiveDBs :: HS.HashSet FilePath
                         , builtPackageName :: PackageName
+                        , builtTransitiveIncludeDirs :: HS.HashSet FilePath
                         }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
@@ -102,8 +104,20 @@ buildPackage (BuiltPackageR plan r) = do
 
 buildResolved :: PlanName -> Resolved -> Action BuiltPackage
 buildResolved _ (Resolved Builtin p) = do
+    Stdout result <- command [] "ghc-pkg"
+                        [ "describe"
+                        , "--no-user-package-db"
+                        , "--no-user-package-conf"
+                        , display p
+                        ]
+    putNormal $ show result
+    info <- return $! case IP.parseInstalledPackageInfo result of
+        ParseFailed err -> error (show err)
+        ParseOk _ info -> info
     return BuiltPackage { builtTransitiveDBs = HS.empty
                         , builtPackageName = packageName p
+                        , builtTransitiveIncludeDirs
+                            = HS.fromList $ IP.includeDirs info
                         }
 buildResolved planName (Resolved Additional p) = do
     -- TODO: what if the .cabal file has a different basename?
@@ -181,6 +195,8 @@ buildLibrary planName plan deps desc lib
                 { builtTransitiveDBs =
                         foldMap builtTransitiveDBs deps
                 , builtPackageName = packageName $ package desc
+                -- TODO
+                , builtTransitiveIncludeDirs = HS.empty
                 }
 
   | otherwise = do
@@ -242,14 +258,10 @@ buildLibrary planName plan deps desc lib
                     HS.insert (buildDir </> "db")
                         $ foldMap builtTransitiveDBs deps
                 , builtPackageName = packageName $ package desc
+                -- TODO:
+                , builtTransitiveIncludeDirs = HS.empty
                 }
     return res
-
-pathsModule :: PackageName -> ModuleName
-pathsModule p = fromString $ "Paths_" ++ map fixHyphen (display p)
-  where
-    fixHyphen '-' = '_'
-    fixHyphen c = c
 
 buildPlanDir :: PlanName -> FilePath
 buildPlanDir (PlanName n) = buildArtifact $ n </> "packages"
@@ -276,26 +288,26 @@ findModule
     -> [FilePath]             -- Source directory to check
     -> ModuleName
     -> Action FilePath
-findModule plan bi buildDir pkgDir pkgName paths m
-    | m == pathsModule pkgName = do
-        let f = buildDir </> "paths" </> display m <.> "hs"
-        need [f]
-        return f
-    | otherwise  = do
-        found <- runMaybeT $ msum $ map (search plan bi m buildDir pkgDir) paths
-        case found of
-            Nothing -> error $ "Missing module " ++ display m
-                            ++ "; searched " ++ show paths
-            Just f -> return f
-  where
-    loop [] = error $ "Missing module " ++ display m
+findModule plan bi buildDir pkgDir pkgName paths m = do
+    found <- runMaybeT $ genPathsModule buildDir m pkgName <|>
+                msum (map (search plan bi m buildDir pkgDir) paths)
+    case found of
+        Nothing -> error $ "Missing module " ++ display m
                         ++ "; searched " ++ show paths
-    loop (f:fs) = do
-        let g = f </> toFilePath m <.> "hs"
-        exists <- doesFileExist g
-        if exists
-            then return g
-            else loop fs
+        Just f -> return f
+
+genPathsModule
+    :: FilePath -> ModuleName -> PackageName -> MaybeT Action FilePath
+genPathsModule buildDir m pkg = do
+    guard $ m == pathsModule
+    let f = buildDir </> "paths" </> display m <.> "hs"
+    lift $ need [f]
+    return f
+  where
+    pathsModule = fromString $ "Paths_" ++ map fixHyphen (display pkg)
+    fixHyphen '-' = '_'
+    fixHyphen c = c
+
 
 search
     :: BuildPlan
