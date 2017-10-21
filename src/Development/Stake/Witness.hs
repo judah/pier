@@ -5,7 +5,7 @@ module Development.Stake.Witness
     , askWitnesses
     ) where
 
-import Data.Binary (encode, decode)
+import Data.Binary (encode, decodeOrFail)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Development.Shake
@@ -26,13 +26,13 @@ addWitness
     -> Rules ()
 addWitness act = addBuiltinRule noLint $ \(WitnessQ q) old depsChanged
                     -> case old of
-    Just old' | not depsChanged -> return $ RunResult ChangedNothing old'
-                                         $ decode' old'
+    Just old' | not depsChanged
+              , Just val <- decode' old'
+                    -> return $ RunResult ChangedNothing old' val
     _ -> do
             new <- WitnessA <$> act q
-            -- TODO: if decode fails, treat it as changed
             return $ RunResult
-                    (if fmap decode' old == Just new
+                    (if (old >>= decode') == Just new
                         then ChangedRecomputeSame
                         else ChangedRecomputeDiff)
                     (encode' new)
@@ -41,8 +41,11 @@ addWitness act = addBuiltinRule noLint $ \(WitnessQ q) old depsChanged
         encode' :: Binary a => a -> BS.ByteString
         encode' = BS.concat . LBS.toChunks . encode
 
-        decode' :: Binary a => BS.ByteString -> a
-        decode' = decode . LBS.fromChunks . return
+        decode' :: Binary a => BS.ByteString -> Maybe a
+        decode' b = case decodeOrFail $ LBS.fromChunks [b] of
+                        Right (bs,_,x)
+                            | LBS.null bs -> Just x
+                        _ -> Nothing
 
 
 askWitness
