@@ -127,6 +127,20 @@ buildResolved planName (Resolved Additional p) = do
     gdesc <- liftIO $ readPackageDescription normal f
     plan <- askBuildPlan planName
     desc <- flattenToDefaultFlags plan gdesc
+    -- TODO: more relocatable
+    dir <- liftIO $ Directory.getCurrentDirectory
+    case buildType desc of
+        Nothing -> return ()
+        Just Simple -> return ()
+        -- TODO: more hermetic
+        Just Configure -> command_ [Cwd $ packageSourceDir p]
+                            (dir </> packageSourceDir p </> "configure")
+                            []
+                        -- TODO: look for {package}.buildinfo; if it exists,
+                        -- call readHookedBuildInfo and
+                        -- updatePackageDescription.
+        Just bt -> error $ "Unrecognized build type: " ++ display bt
+
     buildFromDesc planName plan desc
 
 packageSourceDir :: PackageId -> FilePath
