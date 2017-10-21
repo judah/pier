@@ -43,6 +43,7 @@ infixl #>
 
 runStake :: Rules () -> IO ()
 runStake rules = shakeArgs shakeOptions
+                            { shakeFiles = stakeDir }
                         $ cleaner >> rules
 
 runClean :: FilePattern -> Rules ()
