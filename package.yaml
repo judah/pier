@@ -20,6 +20,7 @@ dependencies:
   - shake
   - transformers
   - unordered-containers
+  - optparse-applicative
   - text
   - wreq
   - yaml
