@@ -110,7 +110,6 @@ buildResolved _ (Resolved Builtin p) = do
                         , "--no-user-package-conf"
                         , display p
                         ]
-    putNormal $ show result
     info <- return $! case IP.parseInstalledPackageInfo result of
         ParseFailed err -> error (show err)
         ParseOk _ info -> info
@@ -129,19 +128,25 @@ buildResolved planName (Resolved Additional p) = do
     desc <- flattenToDefaultFlags plan gdesc
     -- TODO: more relocatable
     dir <- liftIO $ Directory.getCurrentDirectory
-    case buildType desc of
-        Nothing -> return ()
-        Just Simple -> return ()
+    desc' <- case buildType desc of
         -- TODO: more hermetic
-        Just Configure -> command_ [Cwd $ packageSourceDir p]
-                            (dir </> packageSourceDir p </> "configure")
-                            []
-                        -- TODO: look for {package}.buildinfo; if it exists,
-                        -- call readHookedBuildInfo and
-                        -- updatePackageDescription.
-        Just bt -> error $ "Unrecognized build type: " ++ display bt
+        Just Configure -> do
+            command_ [Cwd $ packageSourceDir p]
+                (dir </> packageSourceDir p </> "configure")
+                []
+            let buildInfoFile = packageSourceDir p
+                                    </> unPackageName (pkgName p)
+                                    <.> "buildinfo"
+            buildInfoExists <- liftIO $ Directory.doesFileExist buildInfoFile
+            case buildInfoExists of
+                False -> return desc
+                True -> do
+                    hookedBI
+                        <- liftIO $ readHookedBuildInfo normal buildInfoFile
+                    return $ updatePackageDescription hookedBI desc
+        _ -> return desc -- best effort
 
-    buildFromDesc planName plan desc
+    buildFromDesc planName plan desc'
 
 packageSourceDir :: PackageId -> FilePath
 packageSourceDir pkg = artifact $ "downloads/hackage" </> display pkg
@@ -223,7 +228,10 @@ buildLibrary planName plan deps desc lib
     liftIO $ removeFiles buildDir ["//*"]
     let hiDir = buildDir </> "hi"
     let oDir = buildDir </> "o"
-    modules <- mapM (findModule plan lbi buildDir pkgDir
+    let transitiveIncludeDirs = foldMap builtTransitiveIncludeDirs deps
+    modules <- mapM (findModule plan lbi
+                        transitiveIncludeDirs
+                        buildDir pkgDir
                         (packageName $ package desc)
                         sourceDirs)
                     $ otherModules lbi ++ exposedModules lib
@@ -247,7 +255,7 @@ buildLibrary planName plan deps desc lib
         ++ map ("-i"++) (sourceDirs ++ [buildDir </> "paths"])
         ++ map ("-I"++) (map pkgDir $ includeDirs lbi)
         ++ map ("-X" ++)
-            (display (fromMaybe Haskell2010 $ defaultLanguage lbi)
+            (display (fromMaybe Haskell98 $ defaultLanguage lbi)
             : map display (defaultExtensions lbi ++ oldExtensions lbi))
         ++ concat [opts | (GHC,opts) <- options lbi]
         ++ map ("-optP" ++) (cppOptions lbi)
@@ -295,6 +303,7 @@ moduleStr = intercalate "." . components
 findModule
     :: BuildPlan
     -> BuildInfo
+    -> HS.HashSet FilePath -- ^ Transitive C include dirs
     -> FilePath -- ^ Build directory for outputs of this rule
     -> (FilePath -> FilePath) -- ^ Function to resolve relative source paths
                               -- within this package
@@ -302,9 +311,9 @@ findModule
     -> [FilePath]             -- Source directory to check
     -> ModuleName
     -> Action FilePath
-findModule plan bi buildDir pkgDir pkgName paths m = do
+findModule plan bi cIncludeDirs buildDir pkgDir pkgName paths m = do
     found <- runMaybeT $ genPathsModule buildDir m pkgName <|>
-                msum (map (search plan bi m buildDir pkgDir) paths)
+                msum (map (search plan bi cIncludeDirs m buildDir pkgDir) paths)
     case found of
         Nothing -> error $ "Missing module " ++ display m
                         ++ "; searched " ++ show paths
@@ -326,12 +335,14 @@ genPathsModule buildDir m pkg = do
 search
     :: BuildPlan
     -> BuildInfo
+    -> HS.HashSet FilePath -- ^ Transitive C include dirs
     -> ModuleName
     -> FilePath -- ^ Build directory for outputs
     -> (FilePath -> FilePath) -- ^ Resolve relative source paths
     -> FilePath -- ^ Source directory to check
     -> MaybeT Action FilePath
-search plan bi m buildDir pkgDir srcDir = existing <|> genHsc2hs
+search plan bi cIncludeDirs m buildDir pkgDir srcDir
+    = existing <|> genHsc2hs
   where
     existing = let f = srcDir </> toFilePath m <.> "hs"
                  in exists f >> return f
@@ -346,7 +357,9 @@ search plan bi m buildDir pkgDir srcDir = existing <|> genHsc2hs
                ]
                -- TODO: CPP options?
                ++ ["--cflag=" ++ f | f <- ccOptions bi]
-               ++ ["-I" ++ pkgDir f | f <- "" : includeDirs bi]
+               ++ ["-I" ++ pkgDir f | f <- "" : includeDirs bi
+                                        ++ HS.toList cIncludeDirs
+                                        ]
                ++ ["-D__GLASGOW_HASKELL__=" ++ cppVersion (ghcVersion plan)]
         return output
 
@@ -370,11 +383,14 @@ pathsModuleRule =
         createParentIfMissing f
         writeFile' f $ unlines
             [ "{-# LANGUAGE CPP #-}"
-            , "module " ++ modName ++ " (version) where"
+            , "module " ++ modName ++ " (getDataFileName, version) where"
             , "import Data.Version (Version(..))"
             , "version :: Version"
             , "version = Version " ++ show (versionBranch
                                                 $ pkgVersion pkg)
                                     ++ ""
                             ++ " []" -- tags are deprecated
+            -- TODO:
+            , "getDataFileName :: FilePath -> IO FilePath"
+            , "getDataFileName = error \"getDataFileName: TODO\""
             ]
