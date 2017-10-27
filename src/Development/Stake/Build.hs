@@ -104,7 +104,7 @@ buildPackage (BuiltPackageR plan r) = do
 
 buildResolved :: PlanName -> Resolved -> Action BuiltPackage
 buildResolved _ (Resolved Builtin p) = do
-    Stdout result <- command [] "ghc-pkg"
+    Stdout result <- quietly $ command [] "ghc-pkg"
                         [ "describe"
                         , "--no-user-package-db"
                         , "--no-user-package-conf"
@@ -237,13 +237,14 @@ buildLibrary planName plan deps desc lib
                     $ otherModules lbi ++ exposedModules lib
     -- TODO: Actual LTS version ghc.
     -- TODO: dump output only if the command fails.
-    command_ [] "ghc" $
+    quietly $ command_ [] "ghc" $
         [ "-ddump-to-file"
         , "-this-unit-id", display $ package desc
         , "-hide-all-packages"
         , "-i"
         , "-hidir", hiDir
         , "-odir", oDir
+        , "-v0"
         ]
         ++
         concat (map (\p -> ["-package-db", p])
@@ -263,7 +264,7 @@ buildLibrary planName plan deps desc lib
         ++ ["-O0"]
         ++ modules
     let pkgDb = buildDir </> "db"
-    command_ [] "ghc-pkg" ["init", pkgDb]
+    quietly $ command_ [] "ghc-pkg" ["init", pkgDb]
     let specPath = buildDir </> "spec"
     writeFile' specPath $ unlines
         [ "name: " ++ display (packageName (package desc))
@@ -274,7 +275,7 @@ buildLibrary planName plan deps desc lib
         , "hidden-modules: " ++ unwords (map display $ otherModules lbi)
         , "import-dirs: ${pkgroot}/hi"
         ]
-    command_ [] "ghc-pkg" ["--package-db", pkgDb, "register", specPath]
+    quietly $ command_ [] "ghc-pkg" ["-v0", "--package-db", pkgDb, "register", specPath]
     let res = BuiltPackage
                 { builtTransitiveDBs =
                     HS.insert (buildDir </> "db")

@@ -26,10 +26,11 @@ downloadCabalPackageRule = "downloads/hackage/*/*.cabal" #> \f (n:_) -> do
     let tarPath = takeDirectory f <.> "tar.gz"
     let outputDirParent = takeDirectory $ takeDirectory f
     createParentIfMissing tarPath
-    cmd_ "curl"
+    putNormal $ "Downloading " ++ n
+    quietly $ cmd_ "curl"
         (hackageUrl </> "package" </> n </> n <.> "tar.gz")
         ["-Ss", "-o", tarPath]
-    cmd_ "tar" ["-xzf", tarPath, "-C", outputDirParent]
+    quietly $ cmd_ "tar" ["-xzf", tarPath, "-C", outputDirParent]
 
 hackageUrl :: String
 hackageUrl = "http://hackage.haskell.org"

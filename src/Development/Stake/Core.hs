@@ -68,7 +68,7 @@ cleanFile = buildArtifact "sentinel"
 
 cleaner :: Rules ()
 cleaner = cleanFile %> \f -> do
-    Stdout c <- cmd "uuidgen"
+    Stdout c <- quietly $ cmd "uuidgen"
     writeFile' f c
 
 

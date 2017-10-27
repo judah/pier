@@ -110,7 +110,7 @@ buildPlanRules = do
                                 </> renderPlanName planName <.> "yaml"
         need [f]
         cs <- liftIO $ B.readFile f
-        traced ("Decoding " ++ f) $ case decodeEither' cs of
+        case decodeEither' cs of
             Left err -> throw err
             Right x -> return x
 
