@@ -47,6 +47,7 @@ runStake rules = shakeArgs shakeOptions
                             , shakeProgress = progressSimple
                             -- Detect the number of threads:
                             , shakeThreads = 0
+                            , shakeVerbosity = Chatty
                             }
                         $ cleaner >> rules
 
@@ -81,5 +82,5 @@ data Cleaner = Cleaner
 type instance RuleResult Cleaner = Bool
 
 setCleaned :: Bool -> Rules ()
-setCleaned c = 
+setCleaned c =
 -}

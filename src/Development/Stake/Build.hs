@@ -228,6 +228,8 @@ buildLibrary planName plan deps desc lib
     liftIO $ removeFiles buildDir ["//*"]
     let hiDir = buildDir </> "hi"
     let oDir = buildDir </> "o"
+    let libDir = buildDir </> "lib"
+    liftIO $ Directory.createDirectoryIfMissing True libDir
     let transitiveIncludeDirs = foldMap builtTransitiveIncludeDirs deps
     modules <- mapM (findModule plan lbi
                         transitiveIncludeDirs
@@ -235,6 +237,8 @@ buildLibrary planName plan deps desc lib
                         (packageName $ package desc)
                         sourceDirs)
                     $ otherModules lbi ++ exposedModules lib
+    let libName = "HS" ++ display (packageName $ package desc)
+                      ++ "-" ++ renderPlanName planName
     -- TODO: Actual LTS version ghc.
     -- TODO: dump output only if the command fails.
     quietly $ command_ [] "ghc" $
@@ -245,6 +249,13 @@ buildLibrary planName plan deps desc lib
         , "-hidir", hiDir
         , "-odir", oDir
         , "-v0"
+        -- TODO: allow static linking
+        , "-dynamic"
+        , "-hisuf", "dyn_hi"
+        , "-osuf", "dyn_o"
+        , "-shared"
+        , "-fPIC"
+        , "-o", libDir </> "lib" ++ libName ++ "-ghc" ++ display (ghcVersion plan) <.> "dylib"
         ]
         ++
         concat (map (\p -> ["-package-db", p])
@@ -274,6 +285,8 @@ buildLibrary planName plan deps desc lib
         , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
         , "hidden-modules: " ++ unwords (map display $ otherModules lbi)
         , "import-dirs: ${pkgroot}/hi"
+        , "hs-libraries: " ++ libName
+        , "library-dirs: ${pkgroot}/lib"
         ]
     quietly $ command_ [] "ghc-pkg" ["-v0", "--package-db", pkgDb, "register", specPath]
     let res = BuiltPackage
