@@ -45,6 +45,8 @@ runStake :: Rules () -> IO ()
 runStake rules = shakeArgs shakeOptions
                             { shakeFiles = stakeDir
                             , shakeProgress = progressSimple
+                            -- Detect the number of threads:
+                            , shakeThreads = 0
                             }
                         $ cleaner >> rules
 
