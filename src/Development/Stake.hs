@@ -11,7 +11,7 @@ import Distribution.Package
 import Options.Applicative hiding (action)
 import System.Environment
 
-data Command = Clean | CleanAll | Build PlanName [PackageName] deriving Show
+data Command = Clean | CleanAll | Build PlanName [PackageName] 
 type ShakeFlag = String
 
 verbosity :: Parser ShakeFlag
@@ -19,8 +19,8 @@ verbosity = fmap ('-':) $ many (flag' 'V' ( long "verbose"
                                          <> short 'V'))
 
 parallelism :: Parser ShakeFlag
-parallelism = fmap ("-j " ++) $ strOption ( long "jobs"
-                                       <> short 'j' )
+parallelism = fmap ("-jobs=" ++) $ strOption ( long "jobs"
+                                            <> short 'j' )
 
 shakeArg :: Parser ShakeFlag
 shakeArg = strOption ( long "shake-arg" <> metavar "SHAKEARG" )
