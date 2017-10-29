@@ -218,7 +218,7 @@ buildLibrary planName plan deps desc lib
                 , builtTransitiveIncludeDirs = HS.empty
                 }
 
-  | otherwise = do
+  | otherwise = quietly $ do
     let lbi = libBuildInfo lib
     let pkgDir = (packageSourceDir (package desc) </>)
     let sourceDirs = (\ss -> if null ss then [pkgDir "."] else ss)
@@ -241,7 +241,7 @@ buildLibrary planName plan deps desc lib
                       ++ "-" ++ renderPlanName planName
     -- TODO: Actual LTS version ghc.
     -- TODO: dump output only if the command fails.
-    quietly $ command_ [] "ghc" $
+    command_ [] "ghc" $
         [ "-ddump-to-file"
         , "-this-unit-id", display $ package desc
         , "-hide-all-packages"
@@ -275,7 +275,7 @@ buildLibrary planName plan deps desc lib
         ++ ["-O0"]
         ++ modules
     let pkgDb = buildDir </> "db"
-    quietly $ command_ [] "ghc-pkg" ["init", pkgDb]
+    command_ [] "ghc-pkg" ["init", pkgDb]
     let specPath = buildDir </> "spec"
     writeFile' specPath $ unlines
         [ "name: " ++ display (packageName (package desc))
@@ -288,7 +288,7 @@ buildLibrary planName plan deps desc lib
         , "hs-libraries: " ++ libName
         , "library-dirs: ${pkgroot}/lib"
         ]
-    quietly $ command_ [] "ghc-pkg" ["-v0", "--package-db", pkgDb, "register", specPath]
+    command_ [] "ghc-pkg" ["-v0", "--package-db", pkgDb, "register", specPath]
     let res = BuiltPackage
                 { builtTransitiveDBs =
                     HS.insert (buildDir </> "db")
@@ -356,10 +356,19 @@ search
     -> FilePath -- ^ Source directory to check
     -> MaybeT Action FilePath
 search plan bi cIncludeDirs m buildDir pkgDir srcDir
-    = existing <|> genHsc2hs
+    = genHsc2hs <|> genHappy "l" <|> genHappy "ly"
+                    <|> existing
   where
     existing = let f = srcDir </> toFilePath m <.> "hs"
                  in exists f >> return f
+    genHappy ext = do
+        let input = srcDir </> toFilePath m <.> ext
+        let output = buildDir </> "happy" </> toFilePath m <.> "hs"
+        exists input
+        createParentIfMissing output
+        lift $ command_ [] "happy"
+             $ ["-o", output, input]
+        return output
     genHsc2hs = do
         let input = srcDir </> toFilePath m <.> "hsc"
         let output = buildDir </> "hsc2hs" </> toFilePath m <.> "hs"
@@ -397,7 +406,7 @@ pathsModuleRule =
         createParentIfMissing f
         writeFile' f $ unlines
             [ "{-# LANGUAGE CPP #-}"
-            , "module " ++ modName ++ " (getDataFileName, version) where"
+            , "module " ++ modName ++ " (getDataFileName, getDataDir, version) where"
             , "import Data.Version (Version(..))"
             , "version :: Version"
             , "version = Version " ++ show (versionBranch
@@ -407,4 +416,6 @@ pathsModuleRule =
             -- TODO:
             , "getDataFileName :: FilePath -> IO FilePath"
             , "getDataFileName = error \"getDataFileName: TODO\""
+            , "getDataDir :: IO FilePath"
+            , "getDataDir = error \"getDataDir: TODO\""
             ]
