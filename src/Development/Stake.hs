@@ -5,13 +5,14 @@ import Data.Monoid ((<>))
 import Development.Shake hiding (command)
 import Development.Stake.Build
 import Development.Stake.Core
+import Development.Stake.Config
 import Development.Stake.Package
 import Development.Stake.Stackage
 import Distribution.Package
 import Options.Applicative hiding (action)
 import System.Environment
 
-data Command = Clean | CleanAll | Build PlanName [PackageName]
+data Command = Clean | CleanAll | Build [PackageName]
 type ShakeFlag = String
 
 verbosity :: Parser [ShakeFlag]
@@ -42,11 +43,8 @@ cleanAllCommand :: Parser Command
 cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser Command
-buildCommand = Build <$> planName <*> packageNames
+buildCommand = Build <$> packageNames
   where
-    planName = fmap PlanName $ strOption ( long "plan"
-                                        <> short 'p'
-                                        <> metavar "PLANNAME" )
     packageNames = (fmap . fmap) PackageName $ many
                                              $ strArgument ( metavar "PACKAGENAME" )
 
@@ -66,8 +64,9 @@ runWithOptions cmd = do
   case cmd of
     Clean -> cleanBuild
     CleanAll -> cleanAll
-    Build plan packages -> action $ do
-        askBuiltPackages plan packages
+    Build packages -> action $ do
+        config <- liftIO readConfig
+        askBuiltPackages (configResolver config) packages
 
 main :: IO ()
 main = do

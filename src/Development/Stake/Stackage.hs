@@ -109,10 +109,7 @@ buildPlanRules = do
         let f = artifact "downloads/stackage/plan"
                                 </> renderPlanName planName <.> "yaml"
         need [f]
-        cs <- liftIO $ B.readFile f
-        case decodeEither' cs of
-            Left err -> throw err
-            Right x -> return x
+        liftIO $ decodeFileEither f >>= either throw return
 
 newtype ReadPlan = ReadPlan PlanName
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
