@@ -11,7 +11,22 @@ import Distribution.Package
 import Options.Applicative hiding (action)
 import System.Environment
 
-data Command = Clean | CleanAll | Build PlanName [PackageName]
+data Command = Clean | CleanAll | Build PlanName [PackageName] deriving Show
+type ShakeFlag = String
+
+verbosity :: Parser ShakeFlag
+verbosity = fmap ('-':) $ many (flag' 'V' ( long "verbose"
+                                         <> short 'V'))
+
+parallelism :: Parser ShakeFlag
+parallelism = fmap ("-j " ++) $ strOption ( long "jobs"
+                                       <> short 'j' )
+
+shakeArg :: Parser ShakeFlag
+shakeArg = strOption ( long "shake-arg" <> metavar "SHAKEARG" )
+
+shakeFlags :: Parser [ShakeFlag]
+shakeFlags = (\a b c -> a : b : c) <$> verbosity <*> parallelism <*> (many shakeArg)
 
 cleanCommand :: Parser Command
 cleanCommand = pure Clean
@@ -27,15 +42,17 @@ buildCommand = Build <$> planName <*> packageNames
                                         <> metavar "PLANNAME" )
     packageNames = (fmap . fmap) PackageName $ many 
                                              $ strArgument ( metavar "PACKAGENAME" )
-                
-input :: Parser Command
-input = subparser $
+
+stakeCmd :: Parser Command
+stakeCmd = subparser $
     command "clean" (info cleanCommand  (progDesc "Clean project")) <>
     command "clean-all" (info cleanAllCommand (progDesc "Clean project & dependencies")) <>
     command "build" (info buildCommand (progDesc "Build Project"))
 
-opts :: ParserInfo Command
+opts :: ParserInfo (Command, [ShakeFlag])
 opts = info input mempty
+  where
+    input = (,) <$> stakeCmd <*> shakeFlags
 
 runWithOptions :: Command -> Rules ()
 runWithOptions cmd = do
@@ -47,10 +64,9 @@ runWithOptions cmd = do
 
 main :: IO ()
 main = do
-    res <- execParser opts
-    --pass no args to shake
-    withArgs [] $ runStake $ do
+    (stakeCmd,shakeFlags) <- execParser opts
+    withArgs shakeFlags $ runStake $ do
         downloadCabalPackageRule
         buildPlanRules
         buildPackageRules
-        runWithOptions res
+        runWithOptions stakeCmd
