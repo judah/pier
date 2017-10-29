@@ -47,7 +47,6 @@ runStake rules = shakeArgs shakeOptions
                             , shakeProgress = progressSimple
                             -- Detect the number of threads:
                             , shakeThreads = 0
-                            , shakeVerbosity = Chatty
                             }
                         $ cleaner >> rules
 
@@ -70,8 +69,8 @@ cleanFile :: FilePath
 cleanFile = buildArtifact "sentinel"
 
 cleaner :: Rules ()
-cleaner = cleanFile %> \f -> do
-    Stdout c <- quietly $ cmd "uuidgen"
+cleaner = cleanFile %> \f -> quietly $ do
+    Stdout c <- cmd "uuidgen"
     writeFile' f c
 
 

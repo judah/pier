@@ -11,22 +11,29 @@ import Distribution.Package
 import Options.Applicative hiding (action)
 import System.Environment
 
-data Command = Clean | CleanAll | Build PlanName [PackageName] 
+data Command = Clean | CleanAll | Build PlanName [PackageName]
 type ShakeFlag = String
 
-verbosity :: Parser ShakeFlag
-verbosity = fmap ('-':) $ many (flag' 'V' ( long "verbose"
-                                         <> short 'V'))
+verbosity :: Parser [ShakeFlag]
+verbosity = fmap mk $ many $ flag' 'V' ( long "verbose"
+                                         <> short 'V')
+  where
+    mk [] = []
+    mk vs = ['-':vs]
 
 parallelism :: Parser ShakeFlag
 parallelism = fmap ("-jobs=" ++) $ strOption ( long "jobs"
-                                            <> short 'j' )
+                                            <> short 'j')
 
 shakeArg :: Parser ShakeFlag
-shakeArg = strOption ( long "shake-arg" <> metavar "SHAKEARG" )
+shakeArg = strOption (long "shake-arg" <> metavar "SHAKEARG")
 
 shakeFlags :: Parser [ShakeFlag]
-shakeFlags = (\a b c -> a : b : c) <$> verbosity <*> parallelism <*> (many shakeArg)
+shakeFlags = mconcat <$> sequenceA
+                            [ verbosity
+                            , many parallelism
+                            , many shakeArg
+                            ]
 
 cleanCommand :: Parser Command
 cleanCommand = pure Clean
@@ -40,7 +47,7 @@ buildCommand = Build <$> planName <*> packageNames
     planName = fmap PlanName $ strOption ( long "plan"
                                         <> short 'p'
                                         <> metavar "PLANNAME" )
-    packageNames = (fmap . fmap) PackageName $ many 
+    packageNames = (fmap . fmap) PackageName $ many
                                              $ strArgument ( metavar "PACKAGENAME" )
 
 stakeCmd :: Parser Command

@@ -16,12 +16,13 @@ jobs:
             mkdir -p $HOME/.local/bin
       - run:
           command: |
-            sudo apt-get install libgmp3-dev
+            sudo apt-get install libgmp3-dev uuid-runtime
             mkdir -p $HOME/.local/bin
             curl -L https://github.com/commercialhaskell/stack/releases/download/v1.4.0/stack-1.4.0-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
       - run: stack --no-terminal setup
       - run: stack --no-terminal build --only-dependencies --fast --no-terminal
       - run: stack --no-terminal build --fast --no-terminal
+      - run: stack exec stake -- build -p lts-9.10 lens
       - save_cache:
             key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}
             paths:

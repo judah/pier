@@ -31,7 +31,7 @@ import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Parse
 import Distribution.Text
-import Distribution.System (buildOS, buildArch)
+import Distribution.System (buildOS, buildArch, OS(..))
 import Distribution.Verbosity (normal)
 import Distribution.Version (withinRange, Version(..))
 import qualified Data.HashSet as HS
@@ -255,7 +255,8 @@ buildLibrary planName plan deps desc lib
         , "-osuf", "dyn_o"
         , "-shared"
         , "-fPIC"
-        , "-o", libDir </> "lib" ++ libName ++ "-ghc" ++ display (ghcVersion plan) <.> "dylib"
+        , "-o", libDir </> "lib" ++ libName
+                            ++ "-ghc" ++ display (ghcVersion plan) <.> dynExt
         ]
         ++
         concat (map (\p -> ["-package-db", p])
@@ -273,6 +274,8 @@ buildLibrary planName plan deps desc lib
         ++ map ("-optP" ++) (cppOptions lbi)
         -- TODO: configurable
         ++ ["-O0"]
+        -- TODO: enable warnings for local builds
+        ++ ["-w"]
         ++ modules
     let pkgDb = buildDir </> "db"
     command_ [] "ghc-pkg" ["init", pkgDb]
@@ -298,6 +301,11 @@ buildLibrary planName plan deps desc lib
                 , builtTransitiveIncludeDirs = HS.empty
                 }
     return res
+
+dynExt :: String
+dynExt = case buildOS of
+        OSX -> "dylib"
+        _ -> "so"
 
 buildPlanDir :: PlanName -> FilePath
 buildPlanDir (PlanName n) = buildArtifact $ n </> "packages"
@@ -400,7 +408,7 @@ exists f = liftIO (Directory.doesFileExist f) >>= guard
 
 pathsModuleRule :: Rules ()
 pathsModuleRule =
-    "build/*/packages/*/paths/*.hs" #> \f [lts,pkg',modName] -> do
+    "build/*/packages/*/paths/*.hs" #> \f [lts,pkg',modName] -> quietly $ do
         plan <- askBuildPlan $ PlanName lts
         Just pkg <- return $ simpleParse pkg'
         createParentIfMissing f
