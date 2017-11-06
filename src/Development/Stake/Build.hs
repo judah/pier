@@ -277,6 +277,10 @@ buildLibrary planName plan deps desc lib
         -- TODO: enable warnings for local builds
         ++ ["-w"]
         ++ modules
+        -- TODO: linker and cpp options too?
+        ++ ["-optc" ++ opt | opt <- ccOptions lbi]
+        ++ map pkgDir (cSources lbi)
+        ++ ["-l" ++ lib | lib <- extraLibs lbi]
     let pkgDb = buildDir </> "db"
     command_ [] "ghc-pkg" ["init", pkgDb]
     let specPath = buildDir </> "spec"
@@ -290,6 +294,7 @@ buildLibrary planName plan deps desc lib
         , "import-dirs: ${pkgroot}/hi"
         , "hs-libraries: " ++ libName
         , "library-dirs: ${pkgroot}/lib"
+        , "extra-libraries: " ++ unwords (extraLibs lbi)
         ]
     command_ [] "ghc-pkg" ["-v0", "--package-db", pkgDb, "register", specPath]
     let res = BuiltPackage
