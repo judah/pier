@@ -7,7 +7,7 @@ module Development.Stake.Build
     where
 
 import Control.Applicative ((<|>))
-import Control.Monad (guard, msum, void)
+import Control.Monad (guard, msum, void, when)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
@@ -209,16 +209,7 @@ buildLibrary
     :: PlanName -> BuildPlan -> [BuiltPackage]
     -> PackageDescription -> Library
     -> Action BuiltPackage
-buildLibrary planName plan deps desc lib
-  | null (exposedModules lib) = return BuiltPackage
-                { builtTransitiveDBs =
-                        foldMap builtTransitiveDBs deps
-                , builtPackageName = packageName $ package desc
-                -- TODO
-                , builtTransitiveIncludeDirs = HS.empty
-                }
-
-  | otherwise = quietly $ do
+buildLibrary planName plan deps desc lib = quietly $ do
     let lbi = libBuildInfo lib
     let pkgDir = (packageSourceDir (package desc) </>)
     let sourceDirs = (\ss -> if null ss then [pkgDir "."] else ss)
@@ -241,9 +232,14 @@ buildLibrary planName plan deps desc lib
                       ++ "-" ++ renderPlanName planName
     -- TODO: Actual LTS version ghc.
     -- TODO: dump output only if the command fails.
-    command_ [] "ghc" $
+    let shouldBuildLib = not $ null $ exposedModules lib
+    when shouldBuildLib $ command_ [] "ghc" $
         [ "-ddump-to-file"
         , "-this-unit-id", display $ package desc
+        -- Clear any existing package DB, including the `GHC_PACKAGE_PATH`
+        -- which in particular is set by `stack` and `stack ghci`.
+        , "-clear-package-db"
+        , "-global-package-db"
         , "-hide-all-packages"
         , "-i"
         , "-hidir", hiDir
@@ -284,18 +280,21 @@ buildLibrary planName plan deps desc lib
     let pkgDb = buildDir </> "db"
     command_ [] "ghc-pkg" ["init", pkgDb]
     let specPath = buildDir </> "spec"
-    writeFile' specPath $ unlines
+    writeFile' specPath $ unlines $
         [ "name: " ++ display (packageName (package desc))
         , "version: " ++ display (packageVersion (package desc))
         , "id: " ++ display (package desc)
         , "key: " ++ display (package desc)
-        , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
-        , "hidden-modules: " ++ unwords (map display $ otherModules lbi)
-        , "import-dirs: ${pkgroot}/hi"
-        , "hs-libraries: " ++ libName
-        , "library-dirs: ${pkgroot}/lib"
         , "extra-libraries: " ++ unwords (extraLibs lbi)
         ]
+        ++ if shouldBuildLib
+                then [ "hs-libraries: " ++ libName
+                     , "library-dirs: ${pkgroot}/lib"
+                     , "import-dirs: ${pkgroot}/hi"
+                     , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
+                     , "hidden-modules: " ++ unwords (map display $ otherModules lbi)
+                     ]
+                else []
     command_ [] "ghc-pkg" ["-v0", "--package-db", pkgDb, "register", specPath]
     let res = BuiltPackage
                 { builtTransitiveDBs =
