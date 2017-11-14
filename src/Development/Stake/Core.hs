@@ -14,10 +14,20 @@ module Development.Stake.Core
 
     ) where
 
+import Crypto.Hash.SHA256
 import Control.Monad.IO.Class
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Development.Shake
+import Development.Shake.Classes hiding (hash)
 import Development.Shake.FilePath
+import Development.Stake.Witness
+import GHC.Generics
 import System.Directory
+import System.IO.Temp
+import System.Posix.Files (createSymbolicLink)
 
 stakeDir :: FilePath
 stakeDir = ".stake"
@@ -45,6 +55,7 @@ runStake :: Rules () -> IO ()
 runStake rules = shakeArgs shakeOptions
                             { shakeFiles = stakeDir
                             , shakeProgress = progressSimple
+                            , shakeChange = ChangeDigest
                             -- Detect the number of threads:
                             , shakeThreads = 0
                             }
