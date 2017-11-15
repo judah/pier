@@ -10,10 +10,13 @@ github: judah/stake
 
 dependencies:
   - base
+  - base64-bytestring
   - binary
   - binary-orphans
   - bytestring
   - Cabal
+  - containers
+  - cryptohash-sha256
   - directory
   - hashable
   - lens
@@ -21,7 +24,9 @@ dependencies:
   - transformers
   - unordered-containers
   - optparse-applicative
+  - temporary
   - text
+  - unix
   - wreq
   - yaml
 

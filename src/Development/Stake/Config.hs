@@ -3,7 +3,6 @@ module Development.Stake.Config
     where
 
 import Control.Exception (throw)
-import qualified Crypto.Hash as Hash
 import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as E
@@ -24,6 +23,3 @@ instance FromJSON Config where
 -- TODO: don't bother parsing config when it hasn't changed
 readConfig :: IO Config
 readConfig = decodeFileEither "stack.yaml" >>= either throw return
-
-hashConfig :: Config -> Hash.Digest Hash.SHA256
-hashConfig = Hash.hash . E.encodeUtf8 . T.pack . show
