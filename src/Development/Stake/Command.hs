@@ -11,16 +11,22 @@ module Development.Stake.Command
     , Output
     , output
     , prog
+    , progWithCwd
     , runCommand
     , runCommandStdout
     , Command
     , Artifact(..)
+    , (/>)
     , BuiltArtifact
     , relPath
+    , readArtifact
+    , doesArtifactExist
     , writeArtifact
+    , matchArtifactGlob
     ) where
 
 import Crypto.Hash.SHA256
+import Control.Monad (when)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Base64
@@ -34,9 +40,10 @@ import Development.Shake
 import Development.Shake.Classes hiding (hash)
 import Development.Shake.FilePath
 import GHC.Generics
-import System.Directory
+import System.Directory as Directory
 import System.IO.Temp
 import System.Posix.Files (createSymbolicLink)
+import Distribution.Simple.Utils (matchDirFileGlob)
 
 import Development.Stake.Core
 import Development.Stake.Witness
@@ -45,8 +52,15 @@ import Development.Stake.Witness
 instance Hashable a => Hashable (Set.Set a) where
     hashWithSalt k = hashWithSalt k . Set.toList
 
-newtype Command = Command {cmdProgs :: [(String,[String])]}
+newtype Command = Command {cmdProgs :: [Prog]}
     deriving (Show, Typeable, Eq, Hashable, Binary, NFData)
+
+data Prog = Prog String [String] FilePath -- cwd, relative to root of the sandbox
+    deriving (Show, Typeable, Eq, Generic)
+
+instance Hashable Prog
+instance Binary Prog
+instance NFData Prog
 
 instance Monoid Command where
     Command ps `mappend` Command ps' = Command (ps ++ ps')
@@ -55,7 +69,12 @@ instance Monoid Command where
 instance Semigroup Command
 
 prog :: String -> [String] -> Command
-prog p as = Command [(p,as)]
+prog = progWithCwd "."
+
+-- TODO: better API
+-- Also, more safety...
+progWithCwd :: FilePath -> String -> [String] -> Command
+progWithCwd cwd p as = Command [Prog p as cwd]
 
 data Output a = Output [FilePath] (Hash -> a)
 
@@ -77,8 +96,11 @@ makeHash :: String -> Hash
 makeHash = Hash . fixBase64Path . encode . hash . T.encodeUtf8 . T.pack
   where
     -- Remove slashes, since the strings will appear in filepaths.
+    -- Also remove some other characters to reduce shell errors.
     fixBase64Path = BC.map $ \case
                                 '/' -> '-'
+                                '+' -> '.'
+                                '=' -> '_'
                                 c -> c
 
 hashDir :: Hash -> FilePath
@@ -94,12 +116,21 @@ instance Hashable BuiltArtifact
 instance Binary BuiltArtifact
 instance NFData BuiltArtifact
 
+-- TODO: export opaque
 data Artifact = Built BuiltArtifact | UserFile FilePath
     deriving (Show, Eq, Ord, Generic)
 
 instance Hashable Artifact
 instance Binary Artifact
 instance NFData Artifact
+
+(/>) :: Artifact -> FilePath -> Artifact
+UserFile f /> g = UserFile (f </> g)
+Built (BuiltArtifact h f) /> g = Built $ BuiltArtifact h $ f </> g
+
+-- TODO: go back to </> for artifacts (or some one-sided operator),
+-- and add a check that no two inputs for the same Command are
+-- subdirs of each other
 
 data CommandQ = CommandQ
     { commandQCmd :: Command
@@ -140,6 +171,12 @@ runCommandStdout inputs cmd = do
 -- Maybe: don't use witnesses; instead, just look for the hash to be present
 -- to decide whether to re-run things (similar to how oracles work).
 
+-- TODO: make sure no artifact is a subdir of another artifact.
+
+-- TODO: directories within archives are writable, and are modifyable
+-- through symlinks.  Either just always do a `lndir`, or use real
+-- sandboxes.
+
 commandRules :: Rules ()
 commandRules = addWitness $ \cmdQ@(CommandQ (Command progs) inps outs) -> do
     h <- commandHash cmdQ
@@ -157,8 +194,13 @@ commandRules = addWitness $ \cmdQ@(CommandQ (Command progs) inps outs) -> do
         mapM_ (createParentIfMissing . (tmp </>)) $ outs
         -- TODO: more hermetic around env vars
         let unStdout (Stdout out) = out
-        out <- quietly $ B.concat . map unStdout
-                    <$> mapM (uncurry $ command [Cwd tmp]) progs
+        let run (Prog p as cwd) = do
+                    -- hack around shake weirdness w.r.t. relative binary paths
+                    let p' = if take 2 p == "./"
+                                then tmp </> cwd </> p
+                                else p
+                    quietly $ unStdout <$> command [Cwd $ tmp </> cwd] p' as
+        out <- B.concat <$> mapM run progs
         liftIO $ B.writeFile (tmp </> stdoutPath) out
         mapM_ (createParentIfMissing . (dir </>)) outs
         liftIO $ mapM_ (\f -> renameAndFreezeFile (tmp </> f) (dir </> f)) outs
@@ -178,24 +220,48 @@ checkAllDistinctPaths as =
 
 renameAndFreezeFile :: FilePath -> FilePath -> IO ()
 renameAndFreezeFile src dest = do
-    getPermissions src >>= setPermissions src . setOwnerWritable False
-    renameFile src dest
+    let freeze f = getPermissions f >>= setPermissions f . setOwnerWritable False
+    forFileRecursive_ freeze src
+    renamePath src dest
+
+-- TODO: don't loop on symlinks, and be more efficient?
+forFileRecursive_ :: (FilePath -> IO ()) -> FilePath -> IO ()
+forFileRecursive_ act f = do
+    isDir <- Directory.doesDirectoryExist f
+    if not isDir
+        then act f
+        else do
+            fs <- filter (not . specialFile) <$> Directory.getDirectoryContents f
+            mapM_ (forFileRecursive_ act) $ map (f </>) fs
+  where
+    specialFile "." = True
+    specialFile ".." = True
+    specialFile _ = False
 
 linkArtifact :: FilePath -> Artifact -> IO ()
 linkArtifact dir a = do
     curDir <- getCurrentDirectory
-    createParentIfMissing (dir </> artifactLocalPath a)
-    createSymbolicLink (curDir </> artifactRealPath a) (dir </> artifactLocalPath a)
+    let realPath = curDir </> artifactRealPath a
+    let localPath = dir </> relPath a
+    checkExists realPath
+    createParentIfMissing localPath
+    createSymbolicLink realPath localPath
   where
-    artifactLocalPath :: Artifact -> FilePath
-    artifactLocalPath (UserFile f) = f
-    artifactLocalPath (Built (BuiltArtifact _ f)) = f
+    -- Sanity check
+    checkExists f = do
+        isFile <- Directory.doesFileExist f
+        isDir <- Directory.doesDirectoryExist f
+        when (not isFile && not isDir) $ error $ "linkArtifact: source does not exist: " ++ show f
 
 
 -- TODO: use permissions and/or sandboxing to make this more robust
 artifactRealPath :: Artifact -> FilePath
 artifactRealPath (UserFile f) = f
 artifactRealPath (Built (BuiltArtifact h' f)) = hashDir h' </> f
+
+readArtifact :: Artifact -> Action String
+readArtifact (UserFile f) = readFile' f -- includes need
+readArtifact f = liftIO $ readFile $ artifactRealPath f
 
 relPath :: Artifact -> FilePath
 relPath (UserFile f) = f
@@ -209,3 +275,14 @@ writeArtifact path contents = liftIO $ do
     createParentIfMissing (dir </> path)
     writeFile (dir </> path) contents
     return $ Built $ BuiltArtifact h path
+
+-- I guess we need doesFileExist?  Can we make that robust?
+doesArtifactExist :: Artifact -> Action Bool
+doesArtifactExist (UserFile f) = Development.Shake.doesFileExist f
+doesArtifactExist f = liftIO $ Directory.doesFileExist (artifactRealPath f)
+
+matchArtifactGlob :: Artifact -> FilePath -> Action [Artifact]
+-- TODO: match the behavior of Cabal
+matchArtifactGlob (UserFile f) g = map (UserFile . (f </>)) <$> getDirectoryFiles f [g]
+matchArtifactGlob a@(Built (BuiltArtifact h f)) g
+    = fmap (map (Built . BuiltArtifact h . (f </>))) $ liftIO $ matchDirFileGlob (artifactRealPath a) g
