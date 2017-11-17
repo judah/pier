@@ -6,6 +6,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Development.Stake.Command
     ( commandRules
     , Output
@@ -46,13 +47,10 @@ import System.Posix.Files (createSymbolicLink)
 import Distribution.Simple.Utils (matchDirFileGlob)
 
 import Development.Stake.Core
+import Development.Stake.Orphans ()
 import Development.Stake.Witness
 
--- TODO: avoid this orphan?
-instance Hashable a => Hashable (Set.Set a) where
-    hashWithSalt k = hashWithSalt k . Set.toList
-
-newtype Command = Command {cmdProgs :: [Prog]}
+newtype Command = Command [Prog]
     deriving (Show, Typeable, Eq, Hashable, Binary, NFData)
 
 data Prog = Prog String [String] FilePath -- cwd, relative to root of the sandbox
@@ -133,9 +131,9 @@ Built (BuiltArtifact h f) /> g = Built $ BuiltArtifact h $ f </> g
 -- subdirs of each other
 
 data CommandQ = CommandQ
-    { commandQCmd :: Command
+    { _commandQCmd :: Command
     , commandQInputs :: [Artifact]
-    , commandQOutputs :: [FilePath]
+    , _commandQOutputs :: [FilePath]
     }
     deriving (Show, Eq, Generic)
 
@@ -148,22 +146,22 @@ type instance RuleResult CommandQ = Hash
 -- TODO: sanity-check filepaths; for example, normalize, should be relative, no
 -- "..", etc.
 commandHash :: CommandQ -> Action Hash
-commandHash (CommandQ progs inps outputs) = do
-    let userFiles = [f | UserFile f <- inps]
+commandHash cmdQ = do
+    let userFiles = [f | UserFile f <- commandQInputs cmdQ]
     need userFiles
     -- TODO: streaming hash
     userFileHashes <- liftIO $ map hash <$> mapM B.readFile userFiles
     return . makeHash
-        $ "commandHash: " ++ show (progs, inps, userFileHashes, outputs)
+        $ "commandHash: " ++ show (cmdQ, userFileHashes)
 
 runCommand :: Output t -> Set.Set Artifact -> Command -> Action t
-runCommand (Output outs mk) inputs cmd
-    = mk <$> askWitness (CommandQ cmd (Set.toList inputs) outs)
+runCommand (Output outs mk) inputs c
+    = mk <$> askWitness (CommandQ c (Set.toList inputs) outs)
 
 -- TODO: this doesn't work with multiple progs within a command
 runCommandStdout :: Set.Set Artifact -> Command -> Action String
-runCommandStdout inputs cmd = do
-    out <- runCommand (output stdoutPath) inputs cmd
+runCommandStdout inputs c = do
+    out <- runCommand (output stdoutPath) inputs c
     liftIO $ readFile $ artifactRealPath out
 
 -- TODO: come up with a better story around cleaning/rebuilds.
@@ -213,7 +211,7 @@ stdoutPath = ".stdout"
 
 checkAllDistinctPaths :: [Artifact] -> Action ()
 checkAllDistinctPaths as =
-    case Map.keys $ Map.filter (> 1) $ Map.fromListWith (+) $ map (,1) $ map relPath as of
+    case Map.keys $ Map.filter (> 1) $ Map.fromListWith (+) $ map (,1 :: Integer) $ map relPath as of
         [] -> return ()
         -- TODO: nicer error, telling where they came from:
         fs -> error $ "Artifacts generated from more than one command: " ++ show fs

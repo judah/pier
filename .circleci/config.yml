@@ -22,7 +22,7 @@ jobs:
       - run: stack --no-terminal setup
       - run: stack --no-terminal install happy
       - run: stack --no-terminal build --only-dependencies --fast --no-terminal
-      - run: stack --no-terminal build --fast --no-terminal
+      - run: stack --no-terminal build --pedantic --fast --no-terminal
       - run: stack exec stake -- build -p lts-9.10 lens hlint pandoc
       - save_cache:
             key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}

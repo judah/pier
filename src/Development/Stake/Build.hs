@@ -7,17 +7,14 @@ module Development.Stake.Build
     where
 
 import Control.Applicative (liftA2, (<|>))
-import Control.Monad (filterM, guard, msum, void, when)
-import Control.Monad.IO.Class
+import Control.Monad (filterM, guard, msum)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
 import Data.Bifunctor (first)
-import Data.List (intercalate, nub)
+import Data.List (nub)
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
-import Data.Traversable (for)
 import GHC.Generics hiding (packageName)
-import qualified Data.HashMap.Strict as HM
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath
@@ -31,14 +28,12 @@ import Distribution.Package
 import Distribution.PackageDescription
 import qualified Distribution.InstalledPackageInfo as IP
 import Distribution.Text
-import Distribution.Simple.Utils (matchFileGlob)
 import Distribution.System (buildOS, OS(..))
 import Distribution.Version (Version(..))
 import Distribution.Compiler
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Language.Haskell.Extension
-import qualified System.Directory as Directory
 
 
 buildPackageRules :: Rules ()
@@ -114,15 +109,15 @@ buildFromDesc planName plan packageSourceDir desc
                                                 lbi]
             builtDeps <- askBuiltPackages planName deps
             putNormal $ "Building " ++ display (package desc)
-            buildLibrary planName plan builtDeps packageSourceDir desc lib
+            buildLibrary plan builtDeps packageSourceDir desc lib
     | otherwise = error "buildFromDesc: no library"
 
 buildLibrary
-    :: PlanName -> BuildPlan -> [BuiltPackage]
+    :: BuildPlan -> [BuiltPackage]
     -> Artifact
     -> PackageDescription -> Library
     -> Action BuiltPackage
-buildLibrary planName plan deps packageSourceDir desc lib = do
+buildLibrary plan deps packageSourceDir desc lib = do
     let pkgPrefixDir = display (packageName $ package desc)
     let lbi = libBuildInfo lib
     let pkgDir = (packageSourceDir />)
@@ -136,7 +131,6 @@ buildLibrary planName plan deps packageSourceDir desc lib = do
     moduleFiles <- mapM (findModule plan desc lbi
                             transitiveIncludeDirs
                             pkgDir
-                            (packageName $ package desc)
                             sourceDirs)
                         modules
     let libName = "HS" ++ display (packageName $ package desc)
@@ -145,10 +139,10 @@ buildLibrary planName plan deps packageSourceDir desc lib = do
     cInputs <- collectCFiles desc lbi pkgDir
     -- TODO: Actual LTS version ghc.
     let shouldBuildLib = not $ null $ exposedModules lib
-    let compileOut = liftA2 (\lib hi -> (lib, Set.fromList [lib,hi]))
+    let compileOut = liftA2 (\linked hi -> (linked, Set.fromList [linked,hi]))
                         (output libFile)
                         (output hiDir)
-    (maybeLib, libFiles)  <- if not shouldBuildLib
+    (maybeLinked, libFiles)  <- if not shouldBuildLib
             then return (Nothing, Set.empty)
             else fmap (first Just)
                     . runCommand
@@ -197,7 +191,7 @@ buildLibrary planName plan deps packageSourceDir desc lib = do
         ++ map relPath moduleFiles
         ++ map (relPath . pkgDir) (cSources lbi)
         ++ ["-optc" ++ opt | opt <- ccOptions lbi]
-        ++ ["-l" ++ lib | lib <- extraLibs lbi]
+        ++ ["-l" ++ libDep | libDep <- extraLibs lbi]
         -- TODO: linker options too?
     spec <- writeArtifact (pkgPrefixDir </> "spec") $ unlines $
         [ "name: " ++ display (packageName (package desc))
@@ -206,18 +200,15 @@ buildLibrary planName plan deps packageSourceDir desc lib = do
         , "key: " ++ display (package desc)
         , "extra-libraries: " ++ unwords (extraLibs lbi)
         ]
-        ++ case maybeLib of
+        ++ case maybeLinked of
             Nothing -> []
-            Just libFile ->
+            Just _ ->
                      [ "hs-libraries: " ++ libName
                      , "library-dirs: ${pkgroot}"
                      , "import-dirs: ${pkgroot}/hi"
                      , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
                      , "hidden-modules: " ++ unwords (map display $ otherModules lbi)
                      ]
-    let conf = display (packageName $ package desc) ++ "-" ++
-                display (packageVersion $ package desc)
-                <.> "conf"
     pkgDb' <-
         let relPkgDb = pkgPrefixDir </> "db"
         in runCommand (output relPkgDb)
@@ -240,20 +231,6 @@ dynExt = case buildOS of
         OSX -> "dylib"
         _ -> "so"
 
-buildPlanDir :: PlanName -> FilePath
-buildPlanDir (PlanName n) = buildArtifact $ n </> "packages"
-
-packageBuildDir :: PlanName -> PackageId -> FilePath
-packageBuildDir plan pkg = buildArtifact $ renderPlanName plan
-                                    </> "packages"
-                                    </> display pkg
-
-packageDbFile :: FilePath
-packageDbFile = "db/pkg.db"
-
-moduleStr :: ModuleName -> String
-moduleStr = intercalate "." . components
-
 -- TODO: Organize the arguments to this function better.
 findModule
     :: BuildPlan
@@ -262,11 +239,10 @@ findModule
     -> Set Artifact -- ^ Transitive C include dirs
     -> (FilePath -> Artifact) -- ^ Function to resolve relative source paths
                               -- within this package
-    -> PackageName
     -> [Artifact]             -- Source directory to check
     -> ModuleName
     -> Action Artifact
-findModule plan desc bi cIncludeDirs pkgDir pkgName paths m = do
+findModule plan desc bi cIncludeDirs pkgDir paths m = do
     found <- runMaybeT $ genPathsModule m (package desc) <|>
                 msum (map (search plan desc bi cIncludeDirs m pkgDir) paths)
     case found of

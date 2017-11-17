@@ -8,22 +8,16 @@ import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Set as Set
 import qualified Data.HashMap.Strict as HM
 import Data.Semigroup
-import Data.Version (showVersion)
 import Development.Shake
-import Development.Shake.Classes
 import Development.Shake.FilePath
 import Development.Stake.Core
 import Distribution.Package
 import Distribution.Text (display)
-import Distribution.System (buildOS, buildArch, OS(..))
-import Distribution.Version (withinRange, Version(..))
-import qualified Distribution.InstalledPackageInfo as IP
+import Distribution.System (buildOS, buildArch)
+import Distribution.Version (withinRange)
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Parse
 import Distribution.Compiler
-
-
-import GHC.Generics (Generic(..))
 
 import Development.Stake.Command
 import Development.Stake.Stackage
@@ -32,7 +26,6 @@ import Development.Stake.Stackage
 downloadCabalPackageRule :: Rules ()
 -- TODO: avoid clashes?
 downloadCabalPackageRule = "downloads/hackage/*.tar.gz" #> \f (n:_) -> do
-    let outputDirParent = takeDirectory $ takeDirectory f
     createParentIfMissing f
     putNormal $ "Downloading " ++ n
     quietly $ cmd_ "curl"
@@ -121,6 +114,3 @@ isTrue plan flags = loop
     loop (CNot x) = not $ loop x
     loop (COr x y) = loop x || loop y
     loop (CAnd x y) = loop x && loop y
-
-
-instance Hashable FlagName

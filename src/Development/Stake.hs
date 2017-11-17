@@ -63,19 +63,17 @@ opts = info input mempty
     input = (,) <$> stakeCmd <*> shakeFlags
 
 runWithOptions :: CommandOpt -> Rules ()
-runWithOptions cmd = do
-  case cmd of
-    Clean -> cleanBuild
-    CleanAll -> cleanAll
-    Build plan packages -> action $ do
-        askBuiltPackages plan packages
+runWithOptions Clean = cleanBuild
+runWithOptions CleanAll = cleanAll
+runWithOptions (Build plan packages)
+    = action $ askBuiltPackages plan packages
 
 main :: IO ()
 main = do
-    (stakeCmd,shakeFlags) <- execParser opts
-    withArgs shakeFlags $ runStake $ do
+    (cmdOpt, flags) <- execParser opts
+    withArgs flags $ runStake $ do
         downloadCabalPackageRule
         buildPlanRules
         buildPackageRules
-        runWithOptions stakeCmd
+        runWithOptions cmdOpt
         commandRules

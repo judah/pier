@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 module Development.Stake.Stackage
     ( buildPlanRules
     , askBuildPlan
@@ -29,14 +28,14 @@ import Network.Wreq
 import Distribution.Package
 import Development.Shake.Classes hiding (get)
 import Development.Stake.Core
+import Development.Stake.Orphans ()
 import Development.Stake.Witness
 import Development.Shake.FilePath
 import Development.Shake
 
-ltsBuildPlansUrl, nightlyBuildPlansUrl, packageIndexUrl :: String
+ltsBuildPlansUrl, nightlyBuildPlansUrl :: String
 ltsBuildPlansUrl = "https://raw.githubusercontent.com/fpco/lts-haskell/master/"
 nightlyBuildPlansUrl = "https://raw.githubusercontent.com/fpco/stackage-nightly/master/"
-packageIndexUrl = "https://s3.amazonaws.com/hackage.fpcomplete.com/00-index.tar.gz"
 
 newtype PlanName = PlanName { renderPlanName :: String }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
@@ -86,9 +85,6 @@ data Resolved = Resolved Way PackageId
 
 data Way = Builtin | Additional
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
-
-deriving instance Hashable PackageId
-deriving instance Hashable PackageName
 
 resolvePackage :: BuildPlan -> PackageName -> Resolved
 resolvePackage bp n
