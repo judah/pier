@@ -44,3 +44,4 @@ executables:
   stake:
     source-dirs: 'src'
     main: Development.Stake
+    ghc-options: -threaded -with-rtsopts=-I0
