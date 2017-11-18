@@ -35,7 +35,7 @@ unpackedCabalPackageDir :: BuildPlan -> PackageIdentifier -> Action (PackageDesc
 unpackedCabalPackageDir plan pkg = do
     tarball <- downloadCabalPackage pkg
     packageSourceDir <- runCommand (output outDir)
-        (Set.fromList [UserFile tarball])
+        (Set.fromList [externalFile tarball])
         $ prog "tar" ["-xzf", tarball, "-C", takeDirectory outDir]
     -- TODO: better error message when parse fails; and maybe warnings too?
     cabalContents <- readArtifact $ packageSourceDir

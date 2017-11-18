@@ -40,6 +40,7 @@ buildPackageRules :: Rules ()
 buildPackageRules = do
     addWitness buildPackage
 
+
 data ResolvePackageO = ResolvePackageO PlanName PackageName
     deriving (Show,Typeable,Eq,Generic)
 
@@ -93,7 +94,7 @@ buildResolved _ (Resolved Builtin p) = do
                         , builtTransitiveLibFiles = Set.empty
                         , builtPackageName = packageName p
                         , builtTransitiveIncludeDirs
-                            = Set.fromList $ map UserFile $ IP.includeDirs info
+                            = Set.fromList $ map externalFile $ IP.includeDirs info
                         }
 buildResolved planName (Resolved Additional p) = do
     plan <- askBuildPlan planName

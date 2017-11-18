@@ -16,9 +16,9 @@ module Development.Stake.Command
     , runCommand
     , runCommandStdout
     , Command
-    , Artifact(..)
+    , Artifact
+    , externalFile
     , (/>)
-    , BuiltArtifact
     , relPath
     , readArtifact
     , doesArtifactExist
@@ -84,7 +84,7 @@ instance Applicative Output where
     Output f g <*> Output f' g' = Output (f ++ f') (g <*> g')
 
 output :: FilePath -> Output Artifact
-output f = Output [f] $ Built . flip BuiltArtifact f
+output f = Output [f] $ flip Artifact f . Built
 
 -- | Unique identifier of a command
 newtype Hash = Hash B.ByteString
@@ -102,29 +102,30 @@ makeHash = Hash . fixBase64Path . encode . hash . T.encodeUtf8 . T.pack
                                 c -> c
 
 hashDir :: Hash -> FilePath
-hashDir h = artifact $ "archive" </> hashString h
+hashDir h = stakeFile $ "artifact" </> hashString h
 
 hashString :: Hash -> String
 hashString (Hash h) = BC.unpack h
 
-data BuiltArtifact = BuiltArtifact Hash FilePath
-    deriving (Show, Eq, Ord, Generic)
-
-instance Hashable BuiltArtifact
-instance Binary BuiltArtifact
-instance NFData BuiltArtifact
-
--- TODO: export opaque
-data Artifact = Built BuiltArtifact | UserFile FilePath
+data Artifact = Artifact Source FilePath
     deriving (Show, Eq, Ord, Generic)
 
 instance Hashable Artifact
 instance Binary Artifact
 instance NFData Artifact
 
+data Source = Built Hash | External
+    deriving (Show, Eq, Ord, Generic)
+
+instance Hashable Source
+instance Binary Source
+instance NFData Source
+
+externalFile :: FilePath -> Artifact
+externalFile = Artifact External
+
 (/>) :: Artifact -> FilePath -> Artifact
-UserFile f /> g = UserFile (f </> g)
-Built (BuiltArtifact h f) /> g = Built $ BuiltArtifact h $ f </> g
+Artifact source f /> g = Artifact source (f </> g)
 
 -- TODO: go back to </> for artifacts (or some one-sided operator),
 -- and add a check that no two inputs for the same Command are
@@ -147,10 +148,10 @@ type instance RuleResult CommandQ = Hash
 -- "..", etc.
 commandHash :: CommandQ -> Action Hash
 commandHash cmdQ = do
-    let userFiles = [f | UserFile f <- commandQInputs cmdQ]
-    need userFiles
+    let externalFiles = [f | Artifact External f <- commandQInputs cmdQ]
+    need externalFiles
     -- TODO: streaming hash
-    userFileHashes <- liftIO $ map hash <$> mapM B.readFile userFiles
+    userFileHashes <- liftIO $ map hash <$> mapM B.readFile externalFiles
     return . makeHash
         $ "commandHash: " ++ show (cmdQ, userFileHashes)
 
@@ -254,16 +255,15 @@ linkArtifact dir a = do
 
 -- TODO: use permissions and/or sandboxing to make this more robust
 artifactRealPath :: Artifact -> FilePath
-artifactRealPath (UserFile f) = f
-artifactRealPath (Built (BuiltArtifact h' f)) = hashDir h' </> f
+artifactRealPath (Artifact External f) = f
+artifactRealPath (Artifact (Built h) f) = hashDir h </> f
 
 readArtifact :: Artifact -> Action String
-readArtifact (UserFile f) = readFile' f -- includes need
+readArtifact (Artifact External f) = readFile' f -- includes need
 readArtifact f = liftIO $ readFile $ artifactRealPath f
 
 relPath :: Artifact -> FilePath
-relPath (UserFile f) = f
-relPath (Built (BuiltArtifact _ f)) = f
+relPath (Artifact _ f) = f
 
 writeArtifact :: MonadIO m => FilePath -> String -> m Artifact
 writeArtifact path contents = liftIO $ do
@@ -272,15 +272,17 @@ writeArtifact path contents = liftIO $ do
     -- TODO: remove if it already exists?  Should this be Action?
     createParentIfMissing (dir </> path)
     writeFile (dir </> path) contents
-    return $ Built $ BuiltArtifact h path
+    return $ Artifact (Built h) path
 
 -- I guess we need doesFileExist?  Can we make that robust?
 doesArtifactExist :: Artifact -> Action Bool
-doesArtifactExist (UserFile f) = Development.Shake.doesFileExist f
+doesArtifactExist (Artifact External f) = Development.Shake.doesFileExist f
 doesArtifactExist f = liftIO $ Directory.doesFileExist (artifactRealPath f)
 
 matchArtifactGlob :: Artifact -> FilePath -> Action [Artifact]
 -- TODO: match the behavior of Cabal
-matchArtifactGlob (UserFile f) g = map (UserFile . (f </>)) <$> getDirectoryFiles f [g]
-matchArtifactGlob a@(Built (BuiltArtifact h f)) g
-    = fmap (map (Built . BuiltArtifact h . (f </>))) $ liftIO $ matchDirFileGlob (artifactRealPath a) g
+matchArtifactGlob (Artifact External f) g
+    = map (Artifact External . (f </>)) <$> getDirectoryFiles f [g]
+matchArtifactGlob a@(Artifact (Built h) f) g
+    = fmap (map (Artifact (Built h) . (f </>)))
+            $ liftIO $ matchDirFileGlob (artifactRealPath a) g

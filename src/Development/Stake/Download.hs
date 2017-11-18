@@ -36,7 +36,7 @@ downloadRules :: Rules ()
 downloadRules = addWitness $ \d -> do
     putNormal $ "Downloading " ++ downloadName d
     r <- liftIO $ Wreq.get $ downloadUrlPrefix d </> downloadName d
-    let result = artifact $ "downloads" </> downloadFilePrefix d
+    let result = stakeFile $ "downloads" </> downloadFilePrefix d
                                         </> downloadName d
     createParentIfMissing result
     liftIO $ L.writeFile result $ r ^. responseBody

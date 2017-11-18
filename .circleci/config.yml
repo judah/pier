@@ -19,11 +19,19 @@ jobs:
             sudo apt-get install libgmp3-dev uuid-runtime
             mkdir -p $HOME/.local/bin
             curl -L https://github.com/commercialhaskell/stack/releases/download/v1.4.0/stack-1.4.0-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
+
+      # Build with `stack`
       - run: stack --no-terminal setup
-      - run: stack --no-terminal install happy
+      - run: stack --no-terminal install happy weeder
       - run: stack --no-terminal build --only-dependencies --fast --no-terminal
       - run: stack --no-terminal build --pedantic --fast --no-terminal
+
+      # Check for unused or redundant dependencies/exports
+      - run: weeder . --build
+
+      # Run stake on some sample packages
       - run: stack exec stake -- build -p lts-9.10 lens hlint pandoc
+
       - save_cache:
             key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}
             paths:

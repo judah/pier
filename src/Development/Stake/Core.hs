@@ -2,12 +2,10 @@
 module Development.Stake.Core
     ( -- * Build directory
       runStake
-    , artifact
-    , (#>)
+    , stakeFile
       -- * Cleaning
     , rerunIfCleaned
     , cleanBuild
-    , buildArtifact
     , cleanAll
       -- * Directory utilities
     , createParentIfMissing
@@ -23,23 +21,8 @@ stakeDir :: FilePath
 stakeDir = ".stake"
 
 -- TODO: newtype describing inputs/outputs:
-artifact :: FilePattern -> FilePattern
-artifact = (stakeDir </>)
-
-buildDir :: FilePath
-buildDir = "build"
-
-buildArtifact :: FilePattern -> FilePattern
-buildArtifact = artifact . (buildDir </>)
-
-(#>) :: FilePath -> (FilePath -> [String] -> Action ()) -> Rules ()
-pat #> act = pat' %> \f -> case filePattern pat' f of
-                                Just ms -> act f ms
-                                Nothing -> fail $ "Shouldn't happen: no match"
-                                                ++ " for pattern " ++ show (pat', f)
-  where
-    pat' = artifact pat
-infixl #>
+stakeFile :: FilePattern -> FilePattern
+stakeFile = (stakeDir </>)
 
 runStake :: Rules () -> IO ()
 runStake rules = shakeArgs shakeOptions
@@ -55,7 +38,7 @@ runClean :: FilePattern -> Rules ()
 runClean pat = action $ removeFilesAfter stakeDir [pat]
 
 cleanBuild, cleanAll :: Rules ()
-cleanBuild = runClean buildDir
+cleanBuild = runClean cleanFile
 cleanAll = runClean ""
 
 createParentIfMissing :: MonadIO m => FilePath -> m ()
@@ -67,7 +50,7 @@ rerunIfCleaned :: Action ()
 rerunIfCleaned = need [cleanFile]
 
 cleanFile :: FilePath
-cleanFile = buildArtifact "sentinel"
+cleanFile = stakeFile "sentinel"
 
 cleaner :: Rules ()
 cleaner = cleanFile %> \f -> quietly $ do
