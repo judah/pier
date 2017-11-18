@@ -14,48 +14,23 @@ import GHC.Generics
 import Data.Binary.Orphans ()
 import qualified Data.ByteString as B
 import Control.Exception (throw)
-import Control.Lens ((^.))
 import Control.Monad ((>=>))
-import qualified Data.ByteString.Lazy as L
 import qualified Data.HashMap.Strict as HM
 import Data.List (isPrefixOf)
-import Data.String (IsString(..))
 import Data.Text (Text, pack)
 import Data.Yaml
 import Distribution.Version
 import qualified Distribution.Text as Cabal
-import Network.Wreq
 import Distribution.Package
 import Development.Shake.Classes hiding (get)
-import Development.Stake.Core
+import Development.Stake.Download
 import Development.Stake.Orphans ()
 import Development.Stake.Witness
 import Development.Shake.FilePath
 import Development.Shake
 
-ltsBuildPlansUrl, nightlyBuildPlansUrl :: String
-ltsBuildPlansUrl = "https://raw.githubusercontent.com/fpco/lts-haskell/master/"
-nightlyBuildPlansUrl = "https://raw.githubusercontent.com/fpco/stackage-nightly/master/"
-
 newtype PlanName = PlanName { renderPlanName :: String }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
-
-instance IsString PlanName where
-    -- TODO: better parse
-    fromString s = let n = PlanName s
-                    in planUrl n `seq` n
-
-planUrl :: PlanName -> String
-planUrl (PlanName name)
-    | "lts-" `isPrefixOf` name = ltsBuildPlansUrl ++ name ++ ".yaml"
-    | "nightly-" `isPrefixOf` name = nightlyBuildPlansUrl ++ name ++ ".yaml"
-    | otherwise = error $ "Unrecognized plan name " ++ show name
-
-downloadPlan :: PlanName -> FilePath -> Action ()
-downloadPlan p path = do
-    putNormal "Downloading plan..."
-    r <- liftIO $ get $ planUrl p
-    liftIO $ L.writeFile path $ r ^. responseBody
 
 data BuildPlan = BuildPlan
     { corePackageVersions :: HM.HashMap Text Version
@@ -99,16 +74,25 @@ resolvePackage bp n
 
 buildPlanRules :: Rules ()
 buildPlanRules = do
-    "downloads/stackage/plan/*.yaml" #> \f [name] ->
-        downloadPlan (PlanName name) f
     addWitness $ \(ReadPlan planName) -> do
-        let f = artifact "downloads/stackage/plan"
-                                </> renderPlanName planName <.> "yaml"
-        need [f]
+        f <- askDownload Download
+                { downloadFilePrefix = "stackage/plan"
+                , downloadName = renderPlanName planName <.> "yaml"
+                , downloadUrlPrefix = planUrlPrefix planName
+                }
         cs <- liftIO $ B.readFile f
         case decodeEither' cs of
             Left err -> throw err
             Right x -> return x
+
+planUrlPrefix :: PlanName -> String
+planUrlPrefix (PlanName name)
+    | "lts-" `isPrefixOf` name = ltsBuildPlansUrl
+    | "nightly-" `isPrefixOf` name = nightlyBuildPlansUrl
+    | otherwise = error $ "Unrecognized plan name " ++ show name
+  where
+    ltsBuildPlansUrl = "https://raw.githubusercontent.com/fpco/lts-haskell/master/"
+    nightlyBuildPlansUrl = "https://raw.githubusercontent.com/fpco/stackage-nightly/master/"
 
 newtype ReadPlan = ReadPlan PlanName
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)

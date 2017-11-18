@@ -6,7 +6,7 @@ import Development.Shake hiding (command)
 import Development.Stake.Build
 import Development.Stake.Core
 import Development.Stake.Command
-import Development.Stake.Package
+import Development.Stake.Download
 import Development.Stake.Stackage
 import Distribution.Package
 import Options.Applicative hiding (action)
@@ -72,8 +72,8 @@ main :: IO ()
 main = do
     (cmdOpt, flags) <- execParser opts
     withArgs flags $ runStake $ do
-        downloadCabalPackageRule
         buildPlanRules
         buildPackageRules
-        runWithOptions cmdOpt
         commandRules
+        downloadRules
+        runWithOptions cmdOpt

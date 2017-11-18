@@ -1,7 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Development.Stake.Package
-    ( downloadCabalPackageRule
-    , unpackedCabalPackageDir
+    ( unpackedCabalPackageDir
     ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
@@ -10,7 +9,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Semigroup
 import Development.Shake
 import Development.Shake.FilePath
-import Development.Stake.Core
 import Distribution.Package
 import Distribution.Text (display)
 import Distribution.System (buildOS, buildArch)
@@ -20,24 +18,22 @@ import Distribution.PackageDescription.Parse
 import Distribution.Compiler
 
 import Development.Stake.Command
+import Development.Stake.Download
 import Development.Stake.Stackage
 
 
-downloadCabalPackageRule :: Rules ()
--- TODO: avoid clashes?
-downloadCabalPackageRule = "downloads/hackage/*.tar.gz" #> \f (n:_) -> do
-    createParentIfMissing f
-    putNormal $ "Downloading " ++ n
-    quietly $ cmd_ "curl"
-        (hackageUrl </> "package" </> n </> n <.> "tar.gz")
-        ["-Ss", "-o", f]
-
-hackageUrl :: String
-hackageUrl = "http://hackage.haskell.org"
+downloadCabalPackage :: PackageIdentifier -> Action FilePath
+downloadCabalPackage pkg = do
+    let n = display pkg
+    askDownload Download
+        { downloadFilePrefix = "hackage"
+        , downloadName = n <.> "tar.gz"
+        , downloadUrlPrefix = "https://hackage.haskell.org/package" </> n
+        }
 
 unpackedCabalPackageDir :: BuildPlan -> PackageIdentifier -> Action (PackageDescription, Artifact)
 unpackedCabalPackageDir plan pkg = do
-    need [tarball]
+    tarball <- downloadCabalPackage pkg
     packageSourceDir <- runCommand (output outDir)
         (Set.fromList [UserFile tarball])
         $ prog "tar" ["-xzf", tarball, "-C", takeDirectory outDir]
@@ -71,7 +67,6 @@ unpackedCabalPackageDir plan pkg = do
         _ -> return (desc, packageSourceDir)
   where
     outDir = "package/raw" </> display pkg
-    tarball = artifact $ "downloads/hackage" </> display pkg <.> "tar.gz"
 
 flattenToDefaultFlags
     :: BuildPlan -> GenericPackageDescription -> Action PackageDescription
