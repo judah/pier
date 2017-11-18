@@ -21,5 +21,5 @@ instance FromJSON Config where
         return Config { configResolver = PlanName r, configPackages = pkgs }
 
 -- TODO: don't bother parsing config when it hasn't changed
-readConfig :: IO Config
-readConfig = decodeFileEither "stack.yaml" >>= either throw return
+readConfig :: FilePath -> IO Config
+readConfig f = decodeFileEither f >>= either throw return

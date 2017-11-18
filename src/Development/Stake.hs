@@ -13,7 +13,7 @@ import Distribution.Package
 import Options.Applicative hiding (action)
 import System.Environment
 
-data CommandOpt = Clean | CleanAll | Build [PackageName]
+data CommandOpt = Clean | CleanAll | Build FilePath [PackageName]
 type ShakeFlag = String
 
 verbosity :: Parser [ShakeFlag]
@@ -44,10 +44,12 @@ cleanAllCommand :: Parser CommandOpt
 cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser CommandOpt
-buildCommand = Build <$> packageNames
+buildCommand = Build <$> stackYaml <*> packageNames
   where
     packageNames = (fmap . fmap) PackageName $ many
                                              $ strArgument ( metavar "PACKAGENAME" )
+    stackYaml = strOption (long "stack-yaml" <> metavar "PATH"
+                            <> value "stack.yaml" )
 
 stakeCmd :: Parser CommandOpt
 stakeCmd = subparser $
@@ -61,20 +63,18 @@ opts = info input mempty
     input = (,) <$> stakeCmd <*> shakeFlags
 
 runWithOptions :: CommandOpt -> Rules ()
-runWithOptions cmd = do
-  case cmd of
-    Clean -> cleanBuild
-    CleanAll -> cleanAll
-    Build packages -> action $ do
-        config <- liftIO readConfig
-        askBuiltPackages (configResolver config) packages
+runWithOptions Clean = cleanBuild
+runWithOptions CleanAll = cleanAll
+runWithOptions (Build stackYaml packages) = do
+    config <- liftIO $ readConfig stackYaml
+    action $ askBuiltPackages (configResolver config) packages
 
 main :: IO ()
 main = do
-    (stakeCmd,shakeFlags) <- execParser opts
-    withArgs shakeFlags $ runStake $ do
+    (cmdOpt, flags) <- execParser opts
+    withArgs flags $ runStake $ do
         downloadCabalPackageRule
         buildPlanRules
         buildPackageRules
-        runWithOptions stakeCmd
+        runWithOptions cmdOpt
         commandRules
