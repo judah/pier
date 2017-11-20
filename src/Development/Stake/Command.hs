@@ -27,7 +27,6 @@ module Development.Stake.Command
     ) where
 
 import Crypto.Hash.SHA256
-import Control.Monad (when)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Base64
@@ -172,10 +171,6 @@ runCommandStdout inputs c = do
 
 -- TODO: make sure no artifact is a subdir of another artifact.
 
--- TODO: directories within archives are writable, and are modifyable
--- through symlinks.  Either just always do a `lndir`, or use real
--- sandboxes.
-
 commandRules :: Rules ()
 commandRules = addWitness $ \cmdQ@(CommandQ (Command progs) inps outs) -> do
     h <- commandHash cmdQ
@@ -230,27 +225,36 @@ forFileRecursive_ act f = do
     if not isDir
         then act f
         else do
-            fs <- filter (not . specialFile) <$> Directory.getDirectoryContents f
+            fs <- getUsefulContents f
             mapM_ (forFileRecursive_ act) $ map (f </>) fs
+
+getUsefulContents :: FilePath -> IO [FilePath]
+getUsefulContents f
+    = filter (not . specialFile) <$> Directory.getDirectoryContents f
   where
     specialFile "." = True
     specialFile ".." = True
     specialFile _ = False
 
 linkArtifact :: FilePath -> Artifact -> IO ()
-linkArtifact dir a = do
+linkArtifact destDir a = do
     curDir <- getCurrentDirectory
+    let localPath = destDir </> relPath a
     let realPath = curDir </> artifactRealPath a
-    let localPath = dir </> relPath a
-    checkExists realPath
     createParentIfMissing localPath
-    createSymbolicLink realPath localPath
+    loop realPath localPath
   where
-    -- Sanity check
-    checkExists f = do
-        isFile <- Directory.doesFileExist f
-        isDir <- Directory.doesDirectoryExist f
-        when (not isFile && not isDir) $ error $ "linkArtifact: source does not exist: " ++ show f
+    loop realPath localPath = do
+        isFile <- Directory.doesFileExist realPath
+        isDir <- Directory.doesDirectoryExist realPath
+        if | isFile -> do
+                createSymbolicLink realPath localPath
+           | isDir -> do
+                        createDirectoryIfMissing False localPath
+                        getUsefulContents realPath
+                            >>= mapM_ (\f -> loop (realPath </> f)
+                                      (localPath </> f))
+           | otherwise -> error $ "linkArtifact: does not exist: " ++ realPath
 
 
 -- TODO: use permissions and/or sandboxing to make this more robust
