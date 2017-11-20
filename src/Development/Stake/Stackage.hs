@@ -12,7 +12,6 @@ module Development.Stake.Stackage
 
 import GHC.Generics
 import Data.Binary.Orphans ()
-import qualified Data.ByteString as B
 import Control.Exception (throw)
 import Control.Monad ((>=>))
 import qualified Data.HashMap.Strict as HM
@@ -23,6 +22,7 @@ import Distribution.Version
 import qualified Distribution.Text as Cabal
 import Distribution.Package
 import Development.Shake.Classes hiding (get)
+import Development.Stake.Command
 import Development.Stake.Download
 import Development.Stake.Orphans ()
 import Development.Stake.Witness
@@ -80,7 +80,7 @@ buildPlanRules = do
                 , downloadName = renderPlanName planName <.> "yaml"
                 , downloadUrlPrefix = planUrlPrefix planName
                 }
-        cs <- liftIO $ B.readFile f
+        cs <- readArtifactB f
         case decodeEither' cs of
             Left err -> throw err
             Right x -> return x

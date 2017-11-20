@@ -21,6 +21,7 @@ module Development.Stake.Command
     , (/>)
     , relPath
     , readArtifact
+    , readArtifactB
     , doesArtifactExist
     , writeArtifact
     , matchArtifactGlob
@@ -236,7 +237,14 @@ getUsefulContents f
     specialFile ".." = True
     specialFile _ = False
 
+-- Symlink the artifact into the given destination directory.
+-- If the artifact is itself a directory, make a separate symlink
+-- for each file (similar to `lndir`).
+-- TODO: this could stand to be optimized; it takes about 10% of the time for
+-- building "lens" (not including downloads).
 linkArtifact :: FilePath -> Artifact -> IO ()
+linkArtifact _ (Artifact External f)
+    | isAbsolute f = return ()
 linkArtifact destDir a = do
     curDir <- getCurrentDirectory
     let localPath = destDir </> relPath a
@@ -247,8 +255,7 @@ linkArtifact destDir a = do
     loop realPath localPath = do
         isFile <- Directory.doesFileExist realPath
         isDir <- Directory.doesDirectoryExist realPath
-        if | isFile -> do
-                createSymbolicLink realPath localPath
+        if | isFile -> createSymbolicLink realPath localPath
            | isDir -> do
                         createDirectoryIfMissing False localPath
                         getUsefulContents realPath
@@ -266,6 +273,13 @@ readArtifact :: Artifact -> Action String
 readArtifact (Artifact External f) = readFile' f -- includes need
 readArtifact f = liftIO $ readFile $ artifactRealPath f
 
+readArtifactB :: Artifact -> Action B.ByteString
+readArtifactB (Artifact External f) = need [f] >> liftIO (B.readFile f)
+readArtifactB f = liftIO $ B.readFile $ artifactRealPath f
+
+-- NOTE: relPath may actually be an absolute path, if it was created from
+-- externalFile called on an absolute path.
+-- TODO: rename?
 relPath :: Artifact -> FilePath
 relPath (Artifact _ f) = f
 
