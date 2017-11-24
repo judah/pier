@@ -11,7 +11,7 @@ import Development.Shake.Classes
 import Development.Shake.FilePath
 import Development.Stake.Core
 import Development.Stake.Command
-import Development.Stake.Witness
+import Development.Stake.Persistent
 import GHC.Generics
 import Network.Wreq as Wreq
 import Control.Lens ((^.))
@@ -36,11 +36,11 @@ instance NFData Download
 type instance RuleResult Download = Artifact
 
 askDownload :: Download -> Action Artifact
-askDownload = askWitness
+askDownload = askPersistent
 
 -- TODO: make this its own rule type?
 downloadRules :: Rules ()
-downloadRules = addWitness $ \d -> do
+downloadRules = addPersistent $ \d -> do
     -- Download to a shared location under $HOME/.stake, if it doesn't
     -- already exist (atomically); then make an artifact that symlinks to it.
     downloadsDir <- liftIO $ stakeDownloadsDir

@@ -22,7 +22,7 @@ import Development.Stake.Command
 import Development.Stake.Core
 import Development.Stake.Package
 import Development.Stake.Stackage
-import Development.Stake.Witness
+import Development.Stake.Persistent
 import Distribution.ModuleName
 import Distribution.Package
 import Distribution.PackageDescription
@@ -38,7 +38,7 @@ import Language.Haskell.Extension
 
 buildPackageRules :: Rules ()
 buildPackageRules = do
-    addWitness buildPackage
+    addPersistent buildPackage
 
 
 data ResolvePackageO = ResolvePackageO PlanName PackageName
@@ -68,7 +68,7 @@ data BuiltPackage = BuiltPackage
 askBuiltPackages :: PlanName -> [PackageName] -> Action [BuiltPackage]
 askBuiltPackages planName pkgs = do
     plan <- askBuildPlan planName
-    askWitnesses
+    askPersistents
         $ map (BuiltPackageR planName . resolvePackage plan)
         $ pkgs
 

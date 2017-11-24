@@ -37,7 +37,7 @@ import Development.Shake.Classes hiding (get)
 import Development.Stake.Command
 import Development.Stake.Download
 import Development.Stake.Orphans ()
-import Development.Stake.Witness
+import Development.Stake.Persistent
 import Development.Shake.FilePath
 import Development.Shake
 import System.IO.Temp
@@ -85,7 +85,7 @@ resolvePackage bp n
     n' = pack $ unPackageName n
 
 buildPlanRules :: Rules ()
-buildPlanRules = addWitness $ \(ReadPlan planName) -> do
+buildPlanRules = addPersistent $ \(ReadPlan planName) -> do
         f <- askDownload Download
                 { downloadFilePrefix = "stackage/plan"
                 , downloadName = renderPlanName planName <.> "yaml"
@@ -110,7 +110,7 @@ newtype ReadPlan = ReadPlan PlanName
 type instance RuleResult ReadPlan = BuildPlan
 
 askBuildPlan :: PlanName -> Action BuildPlan
-askBuildPlan = askWitness . ReadPlan
+askBuildPlan = askPersistent . ReadPlan
 
 
 newtype InstallGhc = InstallGhc Version
@@ -132,7 +132,7 @@ ghcArtifacts :: InstalledGhc -> Set.Set Artifact
 ghcArtifacts g = Set.fromList [ghcInstallDir g, globalPackageDb g]
 
 askInstalledGhc :: Version -> Action InstalledGhc
-askInstalledGhc = askWitness . InstallGhc
+askInstalledGhc = askPersistent . InstallGhc
 
 ghcLibRoot :: InstalledGhc -> Artifact
 ghcLibRoot g = ghcLibRootA (ghcInstalledVersion g) (ghcInstallDir g)
@@ -175,7 +175,7 @@ ghcPkgProg ghc args =
         <> input (globalPackageDb ghc)
 
 installGhcRules :: Rules ()
-installGhcRules = addWitness $ \(InstallGhc version) -> do
+installGhcRules = addPersistent $ \(InstallGhc version) -> do
     setupYaml <- askDownload Download
                     { downloadFilePrefix = "stackage/setup"
                     , downloadName = "stack-setup-2.yaml"

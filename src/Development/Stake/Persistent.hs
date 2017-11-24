@@ -1,8 +1,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Development.Stake.Witness
-    ( addWitness
-    , askWitness
-    , askWitnesses
+module Development.Stake.Persistent
+    ( addPersistent
+    , askPersistent
+    , askPersistents
     ) where
 
 import Data.Binary (encode, decodeOrFail)
@@ -12,25 +12,25 @@ import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.Rule
 
-newtype WitnessQ question = WitnessQ question
+newtype PersistentQ question = PersistentQ question
     deriving (Show, Typeable, Eq, Hashable, Binary, NFData)
 
-newtype WitnessA answer = WitnessA { unWitnessA :: answer }
+newtype PersistentA answer = PersistentA { unPersistentA :: answer }
     deriving (Show, Typeable, Eq, Hashable, Binary, NFData)
 
-type instance RuleResult (WitnessQ q) = WitnessA (RuleResult q)
+type instance RuleResult (PersistentQ q) = PersistentA (RuleResult q)
 
-addWitness
+addPersistent
     :: (RuleResult q ~ a, ShakeValue q, ShakeValue a)
     => (q -> Action a)
     -> Rules ()
-addWitness act = addBuiltinRule noLint $ \(WitnessQ q) old depsChanged
+addPersistent act = addBuiltinRule noLint $ \(PersistentQ q) old depsChanged
                     -> case old of
     Just old' | not depsChanged
               , Just val <- decode' old'
                     -> return $ RunResult ChangedNothing old' val
     _ -> do
-            new <- WitnessA <$> act q
+            new <- PersistentA <$> act q
             return $ RunResult
                     (if (old >>= decode') == Just new
                         then ChangedRecomputeSame
@@ -48,16 +48,16 @@ addWitness act = addBuiltinRule noLint $ \(WitnessQ q) old depsChanged
                         _ -> Nothing
 
 
-askWitness
+askPersistent
     :: (RuleResult q ~ a, ShakeValue q, ShakeValue a)
     => q
     -> Action a
-askWitness question = do
-    WitnessA answer <- apply1 $ WitnessQ question
+askPersistent question = do
+    PersistentA answer <- apply1 $ PersistentQ question
     return answer
 
-askWitnesses
+askPersistents
     :: (RuleResult q ~ a, ShakeValue q, ShakeValue a)
     => [q]
     -> Action [a]
-askWitnesses = fmap (map unWitnessA) . apply . map WitnessQ
+askPersistents = fmap (map unPersistentA) . apply . map PersistentQ

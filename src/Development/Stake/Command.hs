@@ -57,7 +57,7 @@ import Distribution.Simple.Utils (matchDirFileGlob)
 
 import Development.Stake.Core
 import Development.Stake.Orphans ()
-import Development.Stake.Witness
+import Development.Stake.Persistent
 
 -- TODO: reconsider names in this module
 
@@ -224,7 +224,7 @@ commandHash cmdQ = do
 
 runCommand :: Output t -> Command -> Action t
 runCommand (Output outs mk) c
-    = mk <$> askWitness (CommandQ c outs)
+    = mk <$> askPersistent (CommandQ c outs)
 
 runCommandStdout :: Command -> Action String
 runCommandStdout c = do
@@ -236,7 +236,7 @@ runCommand_ = runCommand (pure ())
 
 -- TODO: come up with a better story around cleaning/rebuilds.
 -- (See also comments about removing the directory in `commandRules`.)
--- Maybe: don't use witnesses; instead, just look for the hash to be present
+-- Maybe: don't use Persistent; instead, just look for the hash to be present
 -- to decide whether to re-run things (similar to how oracles work).
 
 -- TODO: make sure no artifact is a subdir of another artifact.
@@ -246,7 +246,7 @@ runCommand_ = runCommand (pure ())
 -- sandboxes.
 
 commandRules :: Rules ()
-commandRules = addWitness $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
+commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
     h <- commandHash cmdQ
     let dir = hashDir h
     liftIO $ createParentIfMissing dir
