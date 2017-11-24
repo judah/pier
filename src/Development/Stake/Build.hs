@@ -35,51 +35,61 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Language.Haskell.Extension
 
-
 buildPackageRules :: Rules ()
 buildPackageRules = do
     addPersistent buildPackage
 
-
-data ResolvePackageO = ResolvePackageO PlanName PackageName
-    deriving (Show,Typeable,Eq,Generic)
-
-instance Hashable ResolvePackageO
-instance Binary ResolvePackageO
-instance NFData ResolvePackageO
-type instance RuleResult ResolvePackageO = Resolved
-
-data BuiltPackageR = BuiltPackageR PlanName Resolved
+data BuiltPackageR = BuiltPackageR PlanName PackageName
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable BuiltPackageR
 instance Binary BuiltPackageR
 instance NFData BuiltPackageR
 type instance RuleResult BuiltPackageR = BuiltPackage
 
+data TransitiveDeps = TransitiveDeps
+    { transitiveDBs :: Set Artifact
+    , transitiveLibFiles :: Set Artifact
+    , transitiveIncludeDirs :: Set Artifact
+    } deriving (Show, Eq, Typeable, Generic, Hashable, Binary, NFData)
+instance Semigroup TransitiveDeps
+
+instance Monoid TransitiveDeps where
+    mempty = TransitiveDeps Set.empty Set.empty Set.empty
+    TransitiveDeps x y z `mappend` TransitiveDeps x' y' z'
+        = TransitiveDeps (x <> x') (y <> y') (z <> z')
+
+
 -- ghc --package-db .stake/...text-1234.pkg/db --package text-1234
 data BuiltPackage = BuiltPackage
-                        { builtTransitiveDBs :: Set Artifact
-                        , builtTransitiveLibFiles :: Set Artifact
-                        , builtPackageName :: PackageName
-                        , builtTransitiveIncludeDirs :: Set Artifact
-                        }
+    { builtPackageId :: PackageIdentifier
+    , builtPackageTrans :: TransitiveDeps
+    }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
 askBuiltPackages :: PlanName -> [PackageName] -> Action [BuiltPackage]
 askBuiltPackages planName pkgs = do
-    plan <- askBuildPlan planName
-    askPersistents
-        $ map (BuiltPackageR planName . resolvePackage plan)
-        $ pkgs
+    askPersistents $ map (BuiltPackageR planName) pkgs
+
+data BuiltDeps = BuiltDeps [PackageIdentifier] TransitiveDeps
+
+askBuiltDeps
+    :: PlanName
+    -> [PackageName]
+    -> Action BuiltDeps
+askBuiltDeps planName pkgs = do
+    deps <- askBuiltPackages planName pkgs
+    return $ BuiltDeps (map builtPackageId deps)
+                  (foldMap builtPackageTrans deps)
 
 buildPackage :: BuiltPackageR -> Action BuiltPackage
-buildPackage (BuiltPackageR plan r) = do
+buildPackage (BuiltPackageR planName pkg) = do
     rerunIfCleaned
-    buildResolved plan r
-
-buildResolved :: PlanName -> Resolved -> Action BuiltPackage
-buildResolved planName (Resolved Builtin p) = do
     plan <- askBuildPlan planName
+    buildResolved planName plan (resolvePackage plan pkg)
+
+buildResolved
+    :: PlanName -> BuildPlan -> Resolved -> Action BuiltPackage
+buildResolved _ plan (Resolved Builtin p) = do
     ghc <- askInstalledGhc (ghcVersion plan)
     result <- runCommandStdout
                 $ ghcPkgProg ghc
@@ -88,16 +98,16 @@ buildResolved planName (Resolved Builtin p) = do
     info <- return $! case IP.parseInstalledPackageInfo result of
         IP.ParseFailed err -> error (show err)
         IP.ParseOk _ info -> info
-    return BuiltPackage { builtTransitiveDBs = Set.empty
-                        , builtTransitiveLibFiles = ghcArtifacts ghc
-                        , builtPackageName = packageName p
-                        , builtTransitiveIncludeDirs
+    return $ BuiltPackage p
+                TransitiveDeps
+                    { transitiveDBs = Set.empty
+                    , transitiveLibFiles = ghcArtifacts ghc
+                    , transitiveIncludeDirs
                             = Set.fromList
                                     $ map (parseGlobalPackagePath ghc)
                                     $ IP.includeDirs info
                         }
-buildResolved planName (Resolved Additional p) = do
-    plan <- askBuildPlan planName
+buildResolved planName plan (Resolved Additional p) = do
     (desc, packageSourceDir) <- unpackedCabalPackageDir plan p
     buildFromDesc planName plan packageSourceDir desc
 
@@ -106,18 +116,18 @@ buildFromDesc planName plan packageSourceDir desc
     | Just lib <- library desc
     , let lbi = libBuildInfo lib
     , buildable lbi = do
-            let deps = [n | Dependency n _ <- targetBuildDepends
+            let depNames = [n | Dependency n _ <- targetBuildDepends
                                                 lbi]
-            builtDeps <- askBuiltPackages planName deps
-            buildLibrary plan builtDeps packageSourceDir desc lib
+            deps <- askBuiltDeps planName depNames
+            buildLibrary plan deps packageSourceDir desc lib
     | otherwise = error "buildFromDesc: no library"
 
 buildLibrary
-    :: BuildPlan -> [BuiltPackage]
+    :: BuildPlan -> BuiltDeps
     -> Artifact
     -> PackageDescription -> Library
     -> Action BuiltPackage
-buildLibrary plan deps packageSourceDir desc lib = do
+buildLibrary plan (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
     ghc <- askInstalledGhc (ghcVersion plan)
     putNormal $ "Building " ++ display (package desc)
     let pkgPrefixDir = display (packageName $ package desc)
@@ -128,10 +138,9 @@ buildLibrary plan deps packageSourceDir desc lib = do
                         $ hsSourceDirs lbi
     let hiDir = pkgPrefixDir </> "hi"
     let oDir = pkgPrefixDir </> "o"
-    let transitiveIncludeDirs = foldMap builtTransitiveIncludeDirs deps
     let modules = otherModules lbi ++ exposedModules lib
     moduleFiles <- mapM (findModule plan desc lbi
-                            transitiveIncludeDirs
+                            (transitiveIncludeDirs transDeps)
                             pkgDir
                             sourceDirs)
                         modules
@@ -145,8 +154,8 @@ buildLibrary plan deps packageSourceDir desc lib = do
                         (output libFile)
                         (output hiDir)
     let ghcInputs = Set.fromList moduleFiles
-                            <> foldMap builtTransitiveDBs deps
-                            <> foldMap builtTransitiveLibFiles deps
+                            <> transitiveDBs transDeps
+                            <> transitiveLibFiles transDeps
                             <> Set.fromList cInputs
     let args =
             [ "-ddump-to-file"
@@ -165,11 +174,9 @@ buildLibrary plan deps packageSourceDir desc lib = do
             ]
             ++
             concat (map (\p -> ["-package-db", relPath p])
-                    $ Set.toList
-                    $ foldMap builtTransitiveDBs deps)
+                    $ Set.toList $ transitiveDBs transDeps)
             ++
-            concat [["-package", display $ builtPackageName d]
-                    | d <- deps]
+            concat [["-package", display d] | d <- depPkgs]
             ++ map ("-I"++) (map (relPath . pkgDir) $ includeDirs lbi)
             ++ map ("-X" ++)
                 (display (fromMaybe Haskell98 $ defaultLanguage lbi)
@@ -215,15 +222,13 @@ buildLibrary plan deps packageSourceDir desc lib = do
                                    relPath spec]
                     <> input spec
                     <> inputs libFiles
-    return BuiltPackage
-        { builtTransitiveDBs =
-            Set.insert pkgDb' $ foldMap builtTransitiveDBs deps
-        , builtPackageName = packageName $ package desc
-        , builtTransitiveLibFiles = libFiles
-                <> foldMap builtTransitiveLibFiles deps
-        -- TODO:
-        , builtTransitiveIncludeDirs = Set.empty
-        }
+    return $ BuiltPackage (package desc)
+            $ transDeps <> TransitiveDeps
+                { transitiveDBs = Set.singleton pkgDb'
+                , transitiveLibFiles = libFiles
+                -- TODO:
+                , transitiveIncludeDirs = Set.empty
+                }
 
 dynExt :: String
 dynExt = case buildOS of
