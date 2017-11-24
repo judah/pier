@@ -20,6 +20,7 @@ dependencies:
   - directory
   - hashable
   - lens
+  - process
   - shake
   - transformers
   - unordered-containers
@@ -35,7 +36,6 @@ default-extensions:
   - LambdaCase
   - FlexibleContexts
   - DeriveGeneric
-  - MultiWayIf
   - ScopedTypeVariables
   - StandaloneDeriving
   - TypeFamilies

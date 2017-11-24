@@ -4,7 +4,6 @@ module Development.Stake.Package
     ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.Set as Set
 import qualified Data.HashMap.Strict as HM
 import Data.Semigroup
 import Development.Shake
@@ -35,8 +34,8 @@ unpackedCabalPackageDir :: BuildPlan -> PackageIdentifier -> Action (PackageDesc
 unpackedCabalPackageDir plan pkg = do
     tarball <- downloadCabalPackage pkg
     packageSourceDir <- runCommand (output outDir)
-        (Set.singleton tarball)
         $ prog "tar" ["-xzf", relPath tarball, "-C", takeDirectory outDir]
+        <> input tarball
     -- TODO: better error message when parse fails; and maybe warnings too?
     cabalContents <- readArtifact $ packageSourceDir
                                         /> (unPackageName (pkgName pkg) <.> "cabal")
@@ -48,9 +47,9 @@ unpackedCabalPackageDir plan pkg = do
         Just Configure -> do
             let configuredDir = "package/configured" </> display pkg
             configuredPackage <- runCommand (output configuredDir)
-                (Set.singleton packageSourceDir)
                 $ prog "cp" ["-R", relPath packageSourceDir, configuredDir]
-                <> progWithCwd configuredDir "./configure" []
+                <> withCwd configuredDir (progTemp (configuredDir </> "configure") [])
+                <> input packageSourceDir
             let buildInfoFile = configuredPackage />
                                     (unPackageName (pkgName pkg) <.> "buildinfo")
             buildInfoExists <- doesArtifactExist buildInfoFile

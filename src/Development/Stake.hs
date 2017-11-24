@@ -58,9 +58,9 @@ stakeCmd = subparser $
     command "build" (info buildCommand (progDesc "Build Project"))
 
 opts :: ParserInfo (CommandOpt, [ShakeFlag])
-opts = info input mempty
+opts = info args mempty
   where
-    input = (,) <$> stakeCmd <*> shakeFlags
+    args = (,) <$> stakeCmd <*> shakeFlags
 
 runWithOptions :: CommandOpt -> Rules ()
 runWithOptions Clean = cleanBuild
@@ -76,4 +76,5 @@ main = do
         buildPackageRules
         commandRules
         downloadRules
+        installGhcRules
         runWithOptions cmdOpt

@@ -34,12 +34,9 @@ runStake rules = shakeArgs shakeOptions
                             }
                         $ cleaner >> rules
 
-runClean :: FilePattern -> Rules ()
-runClean pat = action $ removeFilesAfter stakeDir [pat]
-
 cleanBuild, cleanAll :: Rules ()
-cleanBuild = runClean cleanFile
-cleanAll = runClean ""
+cleanBuild = action $ removeFilesAfter "." [cleanFile]
+cleanAll = action $ removeFilesAfter stakeDir ["//"]
 
 createParentIfMissing :: MonadIO m => FilePath -> m ()
 createParentIfMissing path

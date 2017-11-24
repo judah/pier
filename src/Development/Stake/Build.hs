@@ -78,24 +78,27 @@ buildPackage (BuiltPackageR plan r) = do
     buildResolved plan r
 
 buildResolved :: PlanName -> Resolved -> Action BuiltPackage
-buildResolved _ (Resolved Builtin p) = do
+buildResolved planName (Resolved Builtin p) = do
+    plan <- askBuildPlan planName
+    ghc <- askInstalledGhc (ghcVersion plan)
     result <- runCommandStdout
-                Set.empty
-                $ prog "ghc-pkg"
-                    [ "describe"
-                    , "--no-user-package-db"
-                    , "--no-user-package-conf"
-                    , display p
-                    ]
+                $ ghcPkgProg ghc
+                    ["describe" , display p]
+
+    putNormal $ "buildResolved: describe:\n" ++ result
     info <- return $! case IP.parseInstalledPackageInfo result of
         IP.ParseFailed err -> error (show err)
         IP.ParseOk _ info -> info
-    return BuiltPackage { builtTransitiveDBs = Set.empty
-                        , builtTransitiveLibFiles = Set.empty
+    let b = BuiltPackage { builtTransitiveDBs = Set.empty
+                        , builtTransitiveLibFiles = ghcArtifacts ghc
                         , builtPackageName = packageName p
                         , builtTransitiveIncludeDirs
-                            = Set.fromList $ map externalFile $ IP.includeDirs info
+                            = Set.fromList
+                                    $ map (parseGlobalPackagePath ghc)
+                                    $ IP.includeDirs info
                         }
+    putNormal $ show b
+    return b
 buildResolved planName (Resolved Additional p) = do
     plan <- askBuildPlan planName
     (desc, packageSourceDir) <- unpackedCabalPackageDir plan p
@@ -109,7 +112,6 @@ buildFromDesc planName plan packageSourceDir desc
             let deps = [n | Dependency n _ <- targetBuildDepends
                                                 lbi]
             builtDeps <- askBuiltPackages planName deps
-            putNormal $ "Building " ++ display (package desc)
             buildLibrary plan builtDeps packageSourceDir desc lib
     | otherwise = error "buildFromDesc: no library"
 
@@ -119,6 +121,8 @@ buildLibrary
     -> PackageDescription -> Library
     -> Action BuiltPackage
 buildLibrary plan deps packageSourceDir desc lib = do
+    ghc <- askInstalledGhc (ghcVersion plan)
+    putNormal $ "Building " ++ display (package desc)
     let pkgPrefixDir = display (packageName $ package desc)
     let lbi = libBuildInfo lib
     let pkgDir = (packageSourceDir />)
@@ -143,57 +147,52 @@ buildLibrary plan deps packageSourceDir desc lib = do
     let compileOut = liftA2 (\linked hi -> (linked, Set.fromList [linked,hi]))
                         (output libFile)
                         (output hiDir)
+    let ghcInputs = Set.fromList moduleFiles
+                            <> foldMap builtTransitiveDBs deps
+                            <> foldMap builtTransitiveLibFiles deps
+                            <> Set.fromList cInputs
+    let args =
+            [ "-ddump-to-file"
+            , "-this-unit-id", display $ package desc
+            , "-i"
+            , "-hidir", hiDir
+            , "-odir", oDir
+            , "-v0"
+            -- TODO: allow static linking
+            , "-dynamic"
+            , "-hisuf", "dyn_hi"
+            , "-osuf", "dyn_o"
+            , "-shared"
+            , "-fPIC"
+            , "-o", libFile
+            ]
+            ++
+            concat (map (\p -> ["-package-db", relPath p])
+                    $ Set.toList
+                    $ foldMap builtTransitiveDBs deps)
+            ++
+            concat [["-package", display $ builtPackageName d]
+                    | d <- deps]
+            ++ map ("-I"++) (map (relPath . pkgDir) $ includeDirs lbi)
+            ++ map ("-X" ++)
+                (display (fromMaybe Haskell98 $ defaultLanguage lbi)
+                : map display (defaultExtensions lbi ++ oldExtensions lbi))
+            ++ concat [opts | (GHC,opts) <- options lbi]
+            ++ map ("-optP" ++) (cppOptions lbi)
+            -- TODO: configurable
+            ++ ["-O0"]
+            -- TODO: enable warnings for local builds
+            ++ ["-w"]
+            ++ map relPath moduleFiles
+            ++ map (relPath . pkgDir) (cSources lbi)
+            ++ ["-optc" ++ opt | opt <- ccOptions lbi]
+            ++ ["-l" ++ libDep | libDep <- extraLibs lbi]
+            -- TODO: linker options too?
     (maybeLinked, libFiles)  <- if not shouldBuildLib
             then return (Nothing, Set.empty)
             else fmap (first Just)
-                    . runCommand
-                        compileOut
-                        (Set.fromList moduleFiles
-                            <> foldMap builtTransitiveDBs deps
-                            <> foldMap builtTransitiveLibFiles deps
-                            <> Set.fromList cInputs)
-                        $ prog "ghc" $
-        [ "-ddump-to-file"
-        , "-this-unit-id", display $ package desc
-        -- Clear any existing package DB, including the `GHC_PACKAGE_PATH`
-        -- which in particular is set by `stack` and `stack ghci`.
-        , "-clear-package-db"
-        , "-global-package-db"
-        , "-hide-all-packages"
-        , "-i"
-        , "-hidir", hiDir
-        , "-odir", oDir
-        , "-v0"
-        -- TODO: allow static linking
-        , "-dynamic"
-        , "-hisuf", "dyn_hi"
-        , "-osuf", "dyn_o"
-        , "-shared"
-        , "-fPIC"
-        , "-o", libFile
-        ]
-        ++
-        concat (map (\p -> ["-package-db", relPath p])
-                $ Set.toList
-                $ foldMap builtTransitiveDBs deps)
-        ++
-        concat [["-package", display $ builtPackageName d]
-                | d <- deps]
-        ++ map ("-I"++) (map (relPath . pkgDir) $ includeDirs lbi)
-        ++ map ("-X" ++)
-            (display (fromMaybe Haskell98 $ defaultLanguage lbi)
-            : map display (defaultExtensions lbi ++ oldExtensions lbi))
-        ++ concat [opts | (GHC,opts) <- options lbi]
-        ++ map ("-optP" ++) (cppOptions lbi)
-        -- TODO: configurable
-        ++ ["-O0"]
-        -- TODO: enable warnings for local builds
-        ++ ["-w"]
-        ++ map relPath moduleFiles
-        ++ map (relPath . pkgDir) (cSources lbi)
-        ++ ["-optc" ++ opt | opt <- ccOptions lbi]
-        ++ ["-l" ++ libDep | libDep <- extraLibs lbi]
-        -- TODO: linker options too?
+                    $ runCommand
+                        compileOut (ghcProg ghc args <> inputs ghcInputs)
     spec <- writeArtifact (pkgPrefixDir </> "spec") $ unlines $
         [ "name: " ++ display (packageName (package desc))
         , "version: " ++ display (packageVersion (package desc))
@@ -213,10 +212,12 @@ buildLibrary plan deps packageSourceDir desc lib = do
     pkgDb' <-
         let relPkgDb = pkgPrefixDir </> "db"
         in runCommand (output relPkgDb)
-                (Set.singleton spec <> libFiles)
-                $ prog "ghc-pkg" ["init", relPkgDb]
-                    <> prog "ghc-pkg" ["-v0", "--package-db", relPkgDb, "register",
+                $ ghcPkgProg ghc ["init", relPkgDb]
+                    <> ghcPkgProg ghc
+                            ["-v0", "--package-db", relPkgDb, "register",
                                    relPath spec]
+                    <> input spec
+                    <> inputs libFiles
     return BuiltPackage
         { builtTransitiveDBs =
             Set.insert pkgDb' $ foldMap builtTransitiveDBs deps
@@ -297,27 +298,28 @@ search plan desc bi cIncludeDirs m pkgDir srcDir
         let relOutput = toFilePath m <.> "hs"
         lift
             . runCommand (output relOutput)
-                (Set.singleton yFile)
                 $ prog "happy"
                      ["-o", relOutput, relPath yFile]
+                <> input yFile
     genHsc2hs = do
         let hsc = srcDir /> (toFilePath m <.> "hsc")
         exists hsc
         let relOutput = toFilePath m <.> "hs"
         cInputs <- lift $ collectCFiles desc bi pkgDir
         lift $ runCommand (output relOutput)
-                (Set.fromList $ hsc : cInputs)
-                $ prog "hsc2hs" $
-                      ["-o", relOutput
-                      , relPath hsc
-                      ]
-                      -- TODO: CPP options?
-                      ++ ["--cflag=" ++ f | f <- ccOptions bi]
-                      ++ ["-I" ++ relPath f | f <- fmap pkgDir ("" : includeDirs bi)
-                                               ++ Set.toList cIncludeDirs
-                                               ]
-                      ++ ["-D__GLASGOW_HASKELL__="
-                            ++ cppVersion (ghcVersion plan)]
+                $ prog "hsc2hs"
+                      (["-o", relOutput
+                       , relPath hsc
+                       ]
+                       -- TODO: CPP options?
+                       ++ ["--cflag=" ++ f | f <- ccOptions bi]
+                       ++ ["-I" ++ relPath f | f <- fmap pkgDir ("" : includeDirs bi)
+                                                ++ Set.toList cIncludeDirs
+                                                ]
+                       ++ ["-D__GLASGOW_HASKELL__="
+                             ++ cppVersion (ghcVersion plan)])
+                <> input hsc <> inputList cInputs <> inputs cIncludeDirs
+
 
 collectCFiles :: PackageDescription -> BuildInfo -> (FilePath -> Artifact) -> Action [Artifact]
 collectCFiles desc bi pkgDir = do

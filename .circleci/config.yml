@@ -30,7 +30,7 @@ jobs:
       - run: weeder . --build
 
       # Run stake on some sample packages
-      - run: stack exec stake -- build -p lts-9.10 lens hlint pandoc
+      - run: stack exec stake -- build -p lts-9.10 lens hlint pandoc -j 2
 
       - save_cache:
             key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}
