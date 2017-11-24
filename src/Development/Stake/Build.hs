@@ -85,11 +85,10 @@ buildResolved planName (Resolved Builtin p) = do
                 $ ghcPkgProg ghc
                     ["describe" , display p]
 
-    putNormal $ "buildResolved: describe:\n" ++ result
     info <- return $! case IP.parseInstalledPackageInfo result of
         IP.ParseFailed err -> error (show err)
         IP.ParseOk _ info -> info
-    let b = BuiltPackage { builtTransitiveDBs = Set.empty
+    return BuiltPackage { builtTransitiveDBs = Set.empty
                         , builtTransitiveLibFiles = ghcArtifacts ghc
                         , builtPackageName = packageName p
                         , builtTransitiveIncludeDirs
@@ -97,8 +96,6 @@ buildResolved planName (Resolved Builtin p) = do
                                     $ map (parseGlobalPackagePath ghc)
                                     $ IP.includeDirs info
                         }
-    putNormal $ show b
-    return b
 buildResolved planName (Resolved Additional p) = do
     plan <- askBuildPlan planName
     (desc, packageSourceDir) <- unpackedCabalPackageDir plan p
