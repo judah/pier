@@ -22,7 +22,7 @@ jobs:
 
       # Build with `stack`
       - run: stack --no-terminal setup
-      - run: stack --no-terminal install happy weeder
+      - run: stack --no-terminal install happy weeder alex
       - run: stack --no-terminal build --only-dependencies --fast --no-terminal
       - run: stack --no-terminal build --pedantic --fast --no-terminal
 
