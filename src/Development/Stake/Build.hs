@@ -135,7 +135,7 @@ buildLibrary
     -> Artifact
     -> PackageDescription -> Library
     -> Action BuiltPackage
-buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
+buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     let ghc = configGhc conf
     putNormal $ "Building " ++ display (package desc)
     let pkgPrefixDir = display (packageName $ package desc)
@@ -162,51 +162,25 @@ buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
                         (output libFile)
                         (output hiDir)
     let ghcInputs = Set.fromList (moduleFiles ++ moduleBootFiles)
-                            <> transitiveDBs transDeps
-                            <> transitiveLibFiles transDeps
                             <> Set.fromList cInputs
     let args =
-            [ "-ddump-to-file"
-            , "-this-unit-id", display $ package desc
-            , "-i"
+            [ "-this-unit-id", display $ package desc
             , "-hidir", hiDir
             , "-odir", oDir
-            , "-v0"
-            -- TODO: allow static linking
-            , "-dynamic"
-            , "-hisuf", "dyn_hi"
-            , "-osuf", "dyn_o"
             , "-shared"
             , "-fPIC"
             , "-o", libFile
             ]
-            ++
-            concat (map (\p -> ["-package-db", relPath p])
-                    $ Set.toList $ transitiveDBs transDeps)
-            ++
-            concat [["-package", display d] | d <- depPkgs]
-            ++ map ("-I"++) (map (relPath . pkgDir) $ includeDirs lbi)
-            ++ map ("-X" ++)
-                (display (fromMaybe Haskell98 $ defaultLanguage lbi)
-                : map display (defaultExtensions lbi ++ oldExtensions lbi))
-            ++ concat [opts | (GHC,opts) <- options lbi]
-            ++ map ("-optP" ++) (cppOptions lbi)
-            -- TODO: configurable
-            ++ ["-O0"]
-            -- TODO: enable warnings for local builds
-            ++ ["-w"]
-            -- TODO: this include is excessive?  I think so...
+            -- TODO: is this include excessive?
             ++ ["-i" ++ relPath d | d <-  sourceDirs]
             ++ map relPath moduleFiles
             ++ map (relPath . pkgDir) (cSources lbi)
-            ++ ["-optc" ++ opt | opt <- ccOptions lbi]
-            ++ ["-l" ++ libDep | libDep <- extraLibs lbi]
-            -- TODO: linker options too?
     (maybeLinked, libFiles)  <- if not shouldBuildLib
             then return (Nothing, Set.empty)
             else fmap (first Just)
                     $ runCommand
-                        compileOut (ghcProg ghc args <> inputs ghcInputs)
+                        compileOut (invokeGhc ghc deps lbi packageSourceDir args
+                                        <> inputs ghcInputs)
     spec <- writeArtifact (pkgPrefixDir </> "spec") $ unlines $
         [ "name: " ++ display (packageName (package desc))
         , "version: " ++ display (packageVersion (package desc))
@@ -239,6 +213,50 @@ buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
                 -- TODO:
                 , transitiveIncludeDirs = Set.empty
                 }
+
+invokeGhc
+    :: InstalledGhc
+    -> BuiltDeps
+    -> BuildInfo
+    -> Artifact -- ^ package directory
+    -> [String]
+    -> Command
+invokeGhc ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir extraArgs
+    = ghcProg ghc args
+        <> inputs (transitiveDBs transDeps)
+        <> inputs (transitiveLibFiles transDeps)
+  where
+    pkgDir = (packageSourceDir />)
+    extensions =
+        display (fromMaybe Haskell98 $ defaultLanguage bi)
+            : map display (defaultExtensions bi ++ oldExtensions bi)
+    args =
+        [ "-ddump-to-file"
+        , "-v0"
+        , "-dynamic"
+        , "-i"
+        -- TODO: allow static linking
+        , "-dynamic"
+        , "-hisuf", "dyn_hi"
+        , "-osuf", "dyn_o"
+        ]
+        ++
+        concat (map (\p -> ["-package-db", relPath p])
+                $ Set.toList $ transitiveDBs transDeps)
+        ++
+        concat [["-package", display d] | d <- depPkgs]
+        ++ map ("-I"++) (map (relPath . pkgDir) $ includeDirs bi)
+        ++ map ("-X" ++) extensions
+        ++ concat [opts | (GHC,opts) <- options bi]
+        ++ map ("-optP" ++) (cppOptions bi)
+        -- TODO: configurable
+        ++ ["-O0"]
+        -- TODO: enable warnings for local builds
+        ++ ["-w"]
+        ++ ["-optc" ++ opt | opt <- ccOptions bi]
+        ++ ["-l" ++ libDep | libDep <- extraLibs bi]
+        -- TODO: linker options too?
+        ++ extraArgs
 
 dynExt :: String
 dynExt = case buildOS of
