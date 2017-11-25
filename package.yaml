@@ -9,6 +9,7 @@ category: Development
 github: judah/stake
 
 dependencies:
+  - aeson
   - base
   - base64-bytestring
   - binary

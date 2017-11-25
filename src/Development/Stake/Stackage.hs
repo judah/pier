@@ -13,26 +13,22 @@ module Development.Stake.Stackage
     , parseGlobalPackagePath
     , PlanName(..)
     , BuildPlan(..)
-    , resolvePackage
-    , Resolved(..)
-    , Way(..)
     ) where
 
 import GHC.Generics
 import Data.Binary.Orphans ()
 import Data.Monoid ((<>))
 import Control.Exception (throw)
-import Control.Monad ((>=>))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as List
 import qualified Data.Set as Set
-import Data.Text (Text, pack)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Yaml
 import Distribution.Version
-import qualified Distribution.Text as Cabal
 import Distribution.Package
 import Distribution.System (buildPlatform, Platform(..), Arch(..), OS(..))
+import qualified Distribution.Text as Cabal
 import Development.Shake.Classes hiding (get)
 import Development.Stake.Command
 import Development.Stake.Download
@@ -45,44 +41,26 @@ import System.IO.Temp
 newtype PlanName = PlanName { renderPlanName :: String }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
+instance FromJSON PlanName where
+    parseJSON = fmap PlanName . parseJSON
+
 data BuildPlan = BuildPlan
-    { corePackageVersions :: HM.HashMap Text Version
-    , packageVersions :: HM.HashMap Text Version
+    { corePackageVersions :: HM.HashMap PackageName Version
+    , packageVersions :: HM.HashMap PackageName Version
     , ghcVersion :: Version
     } deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
 instance FromJSON BuildPlan where
     parseJSON = withObject "Plan" $ \o -> do
         sys <- o .: "system-info"
-        coreVersions <- (sys .: "core-packages") >>= mapM parseVersion
-        ghcVers <- sys .: "ghc-version" >>= parseVersion
+        coreVersions <- sys .: "core-packages"
+        ghcVers <- sys .: "ghc-version"
         pkgs <- o .: "packages"
-        pkgVersions <- mapM ((.: "version") >=> parseVersion) pkgs
+        pkgVersions <- mapM (.: "version") pkgs
         return BuildPlan { corePackageVersions = coreVersions
                          , packageVersions = pkgVersions
                          , ghcVersion = ghcVers
         }
-
-parseVersion :: String -> Parser Version
-parseVersion s
-    | Just v <- Cabal.simpleParse s = pure v
-    | otherwise = fail $ "Unable to parse Version: " ++ show s
-
-data Resolved = Resolved Way PackageId
-    deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
-
-data Way = Builtin | Additional
-    deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
-
-resolvePackage :: BuildPlan -> PackageName -> Resolved
-resolvePackage bp n
-    | Just v <- HM.lookup n' (corePackageVersions bp)
-                = Resolved Builtin $ PackageIdentifier n v
-    | Just v <- HM.lookup n' (packageVersions bp)
-                = Resolved Additional $ PackageIdentifier n v
-    | otherwise = error $ "Couldn't find package " ++ show n'
-  where
-    n' = pack $ unPackageName n
 
 buildPlanRules :: Rules ()
 buildPlanRules = addPersistent $ \(ReadPlan planName) -> do
@@ -213,9 +191,7 @@ newtype StackSetup = StackSetup { ghcVersions :: HM.HashMap Version DownloadInfo
 instance FromJSON StackSetup where
     parseJSON = withObject "StackSetup" $ \o -> do
         ghc <- o .: "ghc"
-        mac <- ghc .: platformKey
-        StackSetup . HM.fromList <$> mapM (\(v, d) -> (,d) <$> parseVersion v)
-                                    (HM.toList mac)
+        StackSetup <$> (ghc .: platformKey)
 
 -- TODO: make this more configurable (eventually, using
 -- `LocalBuildInfo.hostPlatform` to help support cross-compilation)

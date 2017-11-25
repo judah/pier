@@ -30,7 +30,8 @@ jobs:
       - run: weeder . --build
 
       # Run stake on some sample packages
-      - run: stack exec stake -- build -p lts-9.10 lens hlint pandoc -j 2
+      # Note: it currently uses the `stack.yaml` of this `stake` repo itself.
+      - run: stack exec stake -- build lens hlint pandoc -j 2
 
       - save_cache:
             key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}

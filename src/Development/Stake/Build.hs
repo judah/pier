@@ -19,6 +19,7 @@ import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath
 import Development.Stake.Command
+import Development.Stake.Config
 import Development.Stake.Core
 import Development.Stake.Package
 import Development.Stake.Stackage
@@ -39,7 +40,7 @@ buildPackageRules :: Rules ()
 buildPackageRules = do
     addPersistent buildPackage
 
-data BuiltPackageR = BuiltPackageR PlanName PackageName
+data BuiltPackageR = BuiltPackageR StackYaml PackageName
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable BuiltPackageR
 instance Binary BuiltPackageR
@@ -66,31 +67,31 @@ data BuiltPackage = BuiltPackage
     }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
-askBuiltPackages :: PlanName -> [PackageName] -> Action [BuiltPackage]
-askBuiltPackages planName pkgs = do
-    askPersistents $ map (BuiltPackageR planName) pkgs
+askBuiltPackages :: StackYaml -> [PackageName] -> Action [BuiltPackage]
+askBuiltPackages yaml pkgs = do
+    askPersistents $ map (BuiltPackageR yaml) pkgs
 
 data BuiltDeps = BuiltDeps [PackageIdentifier] TransitiveDeps
 
 askBuiltDeps
-    :: PlanName
+    :: StackYaml
     -> [PackageName]
     -> Action BuiltDeps
-askBuiltDeps planName pkgs = do
-    deps <- askBuiltPackages planName pkgs
+askBuiltDeps stackYaml pkgs = do
+    deps <- askBuiltPackages stackYaml pkgs
     return $ BuiltDeps (map builtPackageId deps)
                   (foldMap builtPackageTrans deps)
 
 buildPackage :: BuiltPackageR -> Action BuiltPackage
-buildPackage (BuiltPackageR planName pkg) = do
+buildPackage (BuiltPackageR stackYaml pkg) = do
     rerunIfCleaned
-    plan <- askBuildPlan planName
-    buildResolved planName plan (resolvePackage plan pkg)
+    conf <- askConfig stackYaml
+    buildResolved stackYaml conf (resolvePackage conf pkg)
 
 buildResolved
-    :: PlanName -> BuildPlan -> Resolved -> Action BuiltPackage
-buildResolved _ plan (Resolved Builtin p) = do
-    ghc <- askInstalledGhc (ghcVersion plan)
+    :: StackYaml -> Config -> Resolved -> Action BuiltPackage
+buildResolved _ conf (Resolved Builtin p) = do
+    let ghc = configGhc conf
     result <- runCommandStdout
                 $ ghcPkgProg ghc
                     ["describe" , display p]
@@ -107,28 +108,30 @@ buildResolved _ plan (Resolved Builtin p) = do
                                     $ map (parseGlobalPackagePath ghc)
                                     $ IP.includeDirs info
                         }
-buildResolved planName plan (Resolved Additional p) = do
-    (desc, packageSourceDir) <- unpackedCabalPackageDir plan p
-    buildFromDesc planName plan packageSourceDir desc
+buildResolved stackYaml conf (Resolved Additional p) = do
+    (desc, packageSourceDir) <- unpackedCabalPackageDir (plan conf) p
+    buildFromDesc stackYaml conf packageSourceDir desc
 
-buildFromDesc :: PlanName -> BuildPlan -> Artifact -> PackageDescription -> Action BuiltPackage
-buildFromDesc planName plan packageSourceDir desc
+buildFromDesc
+    :: StackYaml -> Config -> Artifact -> PackageDescription -> Action BuiltPackage
+buildFromDesc stackYaml conf packageSourceDir desc
     | Just lib <- library desc
     , let lbi = libBuildInfo lib
     , buildable lbi = do
             let depNames = [n | Dependency n _ <- targetBuildDepends
                                                 lbi]
-            deps <- askBuiltDeps planName depNames
-            buildLibrary plan deps packageSourceDir desc lib
+            deps <- askBuiltDeps stackYaml depNames
+            buildLibrary conf deps packageSourceDir desc lib
     | otherwise = error "buildFromDesc: no library"
 
 buildLibrary
-    :: BuildPlan -> BuiltDeps
+    :: Config
+    -> BuiltDeps
     -> Artifact
     -> PackageDescription -> Library
     -> Action BuiltPackage
-buildLibrary plan (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
-    ghc <- askInstalledGhc (ghcVersion plan)
+buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
+    let ghc = configGhc conf
     putNormal $ "Building " ++ display (package desc)
     let pkgPrefixDir = display (packageName $ package desc)
     let lbi = libBuildInfo lib
@@ -139,14 +142,14 @@ buildLibrary plan (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
     let hiDir = pkgPrefixDir </> "hi"
     let oDir = pkgPrefixDir </> "o"
     let modules = otherModules lbi ++ exposedModules lib
-    moduleFiles <- mapM (findModule plan desc lbi
+    moduleFiles <- mapM (findModule conf desc lbi
                             (transitiveIncludeDirs transDeps)
                             pkgDir
                             sourceDirs)
                         modules
     let libName = "HS" ++ display (packageName $ package desc)
     let libFile = pkgPrefixDir </> "lib" ++ libName ++ "-ghc"
-                                ++ display (ghcVersion plan) <.> dynExt
+                                ++ display (ghcVersion $ plan conf) <.> dynExt
     cInputs <- collectCFiles desc lbi pkgDir
     -- TODO: Actual LTS version ghc.
     let shouldBuildLib = not $ null $ exposedModules lib
@@ -237,7 +240,7 @@ dynExt = case buildOS of
 
 -- TODO: Organize the arguments to this function better.
 findModule
-    :: BuildPlan
+    :: Config
     -> PackageDescription
     -> BuildInfo
     -> Set Artifact -- ^ Transitive C include dirs
@@ -246,9 +249,9 @@ findModule
     -> [Artifact]             -- Source directory to check
     -> ModuleName
     -> Action Artifact
-findModule plan desc bi cIncludeDirs pkgDir paths m = do
+findModule config desc bi cIncludeDirs pkgDir paths m = do
     found <- runMaybeT $ genPathsModule m (package desc) <|>
-                msum (map (search plan desc bi cIncludeDirs m pkgDir) paths)
+                msum (map (search config desc bi cIncludeDirs m pkgDir) paths)
     case found of
         Nothing -> error $ "Missing module " ++ display m
                         ++ "; searched " ++ show paths
@@ -280,7 +283,7 @@ genPathsModule m pkg = do
 
 
 search
-    :: BuildPlan
+    :: Config
     -> PackageDescription
     -> BuildInfo
     -> Set Artifact -- ^ Transitive C include dirs
@@ -288,7 +291,7 @@ search
     -> (FilePath -> Artifact) -- ^ Resolve relative source paths
     -> Artifact -- ^ Source directory to check
     -> MaybeT Action Artifact
-search plan desc bi cIncludeDirs m pkgDir srcDir
+search conf desc bi cIncludeDirs m pkgDir srcDir
     = genHsc2hs <|> genHappy "l" <|> genHappy "ly"
                     <|> existing
   where
@@ -319,7 +322,7 @@ search plan desc bi cIncludeDirs m pkgDir srcDir
                                                 ++ Set.toList cIncludeDirs
                                                 ]
                        ++ ["-D__GLASGOW_HASKELL__="
-                             ++ cppVersion (ghcVersion plan)])
+                             ++ cppVersion (ghcVersion $ plan conf)])
                 <> input hsc <> inputList cInputs <> inputs cIncludeDirs
 
 

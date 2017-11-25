@@ -1,7 +1,9 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Development.Stake (main) where
 
+import Control.Exception (throw)
 import Data.Monoid ((<>))
+import qualified Data.Yaml as Yaml
 import Development.Shake hiding (command)
 import Development.Stake.Build
 import Development.Stake.Core
@@ -12,7 +14,7 @@ import Distribution.Package
 import Options.Applicative hiding (action)
 import System.Environment
 
-data CommandOpt = Clean | CleanAll | Build PlanName [PackageName]
+data CommandOpt = Clean | CleanAll | Build FilePath [PackageName]
 type ShakeFlag = String
 
 verbosity :: Parser [ShakeFlag]
@@ -43,11 +45,10 @@ cleanAllCommand :: Parser CommandOpt
 cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser CommandOpt
-buildCommand = Build <$> planName <*> packageNames
+buildCommand = Build <$> stackYamlFlag <*> packageNames
   where
-    planName = fmap PlanName $ strOption ( long "plan"
-                                        <> short 'p'
-                                        <> metavar "PLANNAME" )
+    stackYamlFlag = strOption (long "stack-yaml" <> metavar "YAML"
+                                <> value "stack.yaml")
     packageNames = (fmap . fmap) PackageName $ many
                                              $ strArgument ( metavar "PACKAGENAME" )
 
@@ -65,8 +66,11 @@ opts = info args mempty
 runWithOptions :: CommandOpt -> Rules ()
 runWithOptions Clean = cleanBuild
 runWithOptions CleanAll = cleanAll
-runWithOptions (Build plan packages)
-    = action $ askBuiltPackages plan packages
+runWithOptions (Build yamlPath pkgs)
+    = action $ do
+        yamlE <- liftIO $ Yaml.decodeFileEither yamlPath
+        yaml <- either (liftIO . throw) return yamlE
+        askBuiltPackages yaml pkgs
 
 main :: IO ()
 main = do
