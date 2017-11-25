@@ -295,20 +295,12 @@ search
     -> Artifact -- ^ Source directory to check
     -> MaybeT Action Artifact
 search ghc bi cIncludeDirs m srcDir
-    = genHsc2hs <|> genHappy "l" <|> genHappy "ly"
-                    <|> existing
+    = genHsc2hs <|> 
+      genHappy "y" <|> 
+      genHappy "ly" <|> 
+      genAlex "x" <|> 
+      existing
   where
-    existing = let f = srcDir /> (toFilePath m <.> "hs")
-                 in exists f >> return f
-    genHappy ext = do
-        let yFile = srcDir /> (toFilePath m <.> ext)
-        exists yFile
-        let relOutput = toFilePath m <.> "hs"
-        lift
-            . runCommand (output relOutput)
-                $ prog "happy"
-                     ["-o", relOutput, relPath yFile]
-                <> input yFile
     genHsc2hs = do
         let hsc = srcDir /> (toFilePath m <.> "hsc")
         exists hsc
@@ -324,6 +316,28 @@ search ghc bi cIncludeDirs m srcDir
                        ++ ["-D__GLASGOW_HASKELL__="
                              ++ cppVersion (ghcInstalledVersion ghc)])
                 <> input hsc <> inputs cIncludeDirs
+    genHappy ext = do
+        let yFile = srcDir /> (toFilePath m <.> ext)
+        exists yFile
+        let relOutput = toFilePath m <.> "hs"
+        lift
+            . runCommand (output relOutput)
+                $ prog "happy"
+                     ["-o", relOutput, relPath yFile]
+                <> input yFile
+
+    genAlex ext = do
+       let xFile = srcDir /> (toFilePath m <.> ext)
+       exists xFile
+       let relOutput = toFilePath m <.> "hs"
+       lift
+            . runCommand (output relOutput)
+                $ prog "alex"
+                     ["-o", relOutput, relPath xFile]
+                <> input xFile
+
+    existing = let f = srcDir /> (toFilePath m <.> "hs")
+                 in exists f >> return f
 
 ifNull :: a -> [a] -> [a]
 ifNull x [] = [x]

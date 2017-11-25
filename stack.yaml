@@ -5,3 +5,4 @@ packages:
 
 extra-deps:
   - shake-0.16
+  - BNFC-2.8.1
