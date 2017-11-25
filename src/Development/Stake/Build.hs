@@ -301,12 +301,21 @@ search ghc bi cIncludeDirs m srcDir
       genAlex "x" <|> 
       existing
   where
+    genHappy ext = do
+        let yFile = srcDir /> (toFilePath m <.> ext)
+        exists yFile
+        let relOutput = toFilePath m <.> "hs"
+        lift . runCommand (output relOutput)
+             $ prog "happy"
+                     ["-o", relOutput, relPath yFile]
+                <> input yFile
+
     genHsc2hs = do
         let hsc = srcDir /> (toFilePath m <.> "hsc")
         exists hsc
         let relOutput = toFilePath m <.> "hs"
         lift $ runCommand (output relOutput)
-                $ prog "hsc2hs"
+             $ prog "hsc2hs"
                       (["-o", relOutput
                        , relPath hsc
                        ]
@@ -316,25 +325,15 @@ search ghc bi cIncludeDirs m srcDir
                        ++ ["-D__GLASGOW_HASKELL__="
                              ++ cppVersion (ghcInstalledVersion ghc)])
                 <> input hsc <> inputs cIncludeDirs
-    genHappy ext = do
-        let yFile = srcDir /> (toFilePath m <.> ext)
-        exists yFile
-        let relOutput = toFilePath m <.> "hs"
-        lift
-            . runCommand (output relOutput)
-                $ prog "happy"
-                     ["-o", relOutput, relPath yFile]
-                <> input yFile
 
     genAlex ext = do
        let xFile = srcDir /> (toFilePath m <.> ext)
        exists xFile
        let relOutput = toFilePath m <.> "hs"
-       lift
-            . runCommand (output relOutput)
-                $ prog "alex"
+       lift . runCommand (output relOutput)
+            $ prog "alex"
                      ["-o", relOutput, relPath xFile]
-                <> input xFile
+               <> input xFile
 
     existing = let f = srcDir /> (toFilePath m <.> "hs")
                  in exists f >> return f
