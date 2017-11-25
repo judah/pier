@@ -14,6 +14,7 @@ import Distribution.PackageDescription.Parse
 import Distribution.Version
 import GHC.Generics hiding (packageName)
 
+
 -- TODO: rename; maybe ConfigSpec and ConfigEnv?  Or Config and Env?
 data StackYaml = StackYaml
     { resolver :: PlanName

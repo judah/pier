@@ -147,10 +147,9 @@ buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
     let hiDir = pkgPrefixDir </> "hi"
     let oDir = pkgPrefixDir </> "o"
     let modules = otherModules lbi ++ exposedModules lib
-    moduleFiles <- mapM (findModule conf desc lbi
-                            (transitiveIncludeDirs transDeps)
-                            pkgDir
-                            sourceDirs)
+    let cIncludeDirs = transitiveIncludeDirs transDeps
+                        <> Set.map pkgDir (Set.fromList $ ifNull "" $ includeDirs lbi)
+    moduleFiles <- mapM (findModule ghc desc lbi cIncludeDirs sourceDirs)
                         modules
     moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
     let libName = "HS" ++ display (packageName $ package desc)
@@ -248,18 +247,16 @@ dynExt = case buildOS of
 
 -- TODO: Organize the arguments to this function better.
 findModule
-    :: Config
+    :: InstalledGhc
     -> PackageDescription
     -> BuildInfo
     -> Set Artifact -- ^ Transitive C include dirs
-    -> (FilePath -> Artifact) -- ^ Function to resolve relative source paths
-                              -- within this package
     -> [Artifact]             -- Source directory to check
     -> ModuleName
     -> Action Artifact
-findModule config desc bi cIncludeDirs pkgDir paths m = do
+findModule ghc desc bi cIncludeDirs paths m = do
     found <- runMaybeT $ genPathsModule m (package desc) <|>
-                msum (map (search config desc bi cIncludeDirs m pkgDir) paths)
+                msum (map (search ghc bi cIncludeDirs m) paths)
     case found of
         Nothing -> error $ "Missing module " ++ display m
                         ++ "; searched " ++ show paths
@@ -291,15 +288,13 @@ genPathsModule m pkg = do
 
 
 search
-    :: Config
-    -> PackageDescription
+    :: InstalledGhc
     -> BuildInfo
     -> Set Artifact -- ^ Transitive C include dirs
     -> ModuleName
-    -> (FilePath -> Artifact) -- ^ Resolve relative source paths
     -> Artifact -- ^ Source directory to check
     -> MaybeT Action Artifact
-search conf desc bi cIncludeDirs m pkgDir srcDir
+search ghc bi cIncludeDirs m srcDir
     = genHsc2hs <|> genHappy "l" <|> genHappy "ly"
                     <|> existing
   where
@@ -318,7 +313,6 @@ search conf desc bi cIncludeDirs m pkgDir srcDir
         let hsc = srcDir /> (toFilePath m <.> "hsc")
         exists hsc
         let relOutput = toFilePath m <.> "hs"
-        cInputs <- lift $ collectCFiles desc bi pkgDir
         lift $ runCommand (output relOutput)
                 $ prog "hsc2hs"
                       (["-o", relOutput
@@ -326,12 +320,14 @@ search conf desc bi cIncludeDirs m pkgDir srcDir
                        ]
                        -- TODO: CPP options?
                        ++ ["--cflag=" ++ f | f <- ccOptions bi]
-                       ++ ["-I" ++ relPath f | f <- fmap pkgDir ("" : includeDirs bi)
-                                                ++ Set.toList cIncludeDirs
-                                                ]
+                       ++ ["-I" ++ relPath f | f <- Set.toList cIncludeDirs]
                        ++ ["-D__GLASGOW_HASKELL__="
-                             ++ cppVersion (ghcVersion $ plan conf)])
-                <> input hsc <> inputList cInputs <> inputs cIncludeDirs
+                             ++ cppVersion (ghcInstalledVersion ghc)])
+                <> input hsc <> inputs cIncludeDirs
+
+ifNull :: a -> [a] -> [a]
+ifNull x [] = [x]
+ifNull _ xs = xs
 
 -- Find the "hs-boot" file corresponding to a "hs" file.
 findBootFile :: Artifact -> Action (Maybe Artifact)
@@ -354,7 +350,7 @@ findIncludeInputs pkgDir bi = filterM doesArtifactExist candidates
                  [ pkgDir $ d </> f
                 -- TODO: maybe just installIncludes shouldn't be prefixed
                 -- with include dir?
-                 | d <- "." : includeDirs bi
+                 | d <- "" : includeDirs bi
                  , f <- includes bi ++ installIncludes bi
                  ]
 
