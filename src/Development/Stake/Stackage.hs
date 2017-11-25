@@ -253,14 +253,16 @@ downloadAndInstallGHC version download = do
                                  , globalPackageDb
                                         = ghcLibRootA version installed /> "package.conf.d"
                                  }
-    putNormal "ABOUT TO CHECK"
     runCommand_ $ ghcPkgProg fixed ["check"]
-    putNormal "CHECKED"
     return fixed
 
 makeRelativeGlobalDb :: FilePath -> InstalledGhc -> Action InstalledGhc
 makeRelativeGlobalDb tempDir ghc = do
-    builtinPackages <- fmap words $ runCommandStdout
+    -- List all packages, excluding Cabal which stack doesn't consider a "core"
+    -- package.
+    -- TODO: if our package ids included a hash, this wouldn't be as big a problem
+    -- because two versions of the same package could exist simultaneously.
+    builtinPackages <- fmap (filter (/= "Cabal") . words) $ runCommandStdout
                         $ ghcPkgProg ghc
                             ["list", "--global", "--names-only",
                              "--simple-output" ]

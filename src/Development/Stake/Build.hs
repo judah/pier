@@ -12,7 +12,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
 import Data.Bifunctor (first)
 import Data.List (nub)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Semigroup
 import GHC.Generics hiding (packageName)
 import Development.Shake
@@ -86,11 +86,12 @@ buildPackage :: BuiltPackageR -> Action BuiltPackage
 buildPackage (BuiltPackageR stackYaml pkg) = do
     rerunIfCleaned
     conf <- askConfig stackYaml
-    buildResolved stackYaml conf (resolvePackage conf pkg)
+    let r = resolvePackage conf pkg
+    buildResolved stackYaml conf r
 
 buildResolved
     :: StackYaml -> Config -> Resolved -> Action BuiltPackage
-buildResolved _ conf (Resolved Builtin p) = do
+buildResolved _ conf (Builtin p) = do
     let ghc = configGhc conf
     result <- runCommandStdout
                 $ ghcPkgProg ghc
@@ -108,9 +109,13 @@ buildResolved _ conf (Resolved Builtin p) = do
                                     $ map (parseGlobalPackagePath ghc)
                                     $ IP.includeDirs info
                         }
-buildResolved stackYaml conf (Resolved Additional p) = do
+buildResolved stackYaml conf (Hackage p) = do
     (desc, packageSourceDir) <- unpackedCabalPackageDir (plan conf) p
     buildFromDesc stackYaml conf packageSourceDir desc
+
+buildResolved stackYaml conf (Local p dir) = do
+    desc <- getPackageDescription (plan conf) p dir
+    buildFromDesc stackYaml conf dir desc
 
 buildFromDesc
     :: StackYaml -> Config -> Artifact -> PackageDescription -> Action BuiltPackage
@@ -147,6 +152,7 @@ buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
                             pkgDir
                             sourceDirs)
                         modules
+    moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
     let libName = "HS" ++ display (packageName $ package desc)
     let libFile = pkgPrefixDir </> "lib" ++ libName ++ "-ghc"
                                 ++ display (ghcVersion $ plan conf) <.> dynExt
@@ -156,7 +162,7 @@ buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
     let compileOut = liftA2 (\linked hi -> (linked, Set.fromList [linked,hi]))
                         (output libFile)
                         (output hiDir)
-    let ghcInputs = Set.fromList moduleFiles
+    let ghcInputs = Set.fromList (moduleFiles ++ moduleBootFiles)
                             <> transitiveDBs transDeps
                             <> transitiveLibFiles transDeps
                             <> Set.fromList cInputs
@@ -190,6 +196,8 @@ buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
             ++ ["-O0"]
             -- TODO: enable warnings for local builds
             ++ ["-w"]
+            -- TODO: this include is excessive?  I think so...
+            ++ ["-i" ++ relPath d | d <-  sourceDirs]
             ++ map relPath moduleFiles
             ++ map (relPath . pkgDir) (cSources lbi)
             ++ ["-optc" ++ opt | opt <- ccOptions lbi]
@@ -325,6 +333,12 @@ search conf desc bi cIncludeDirs m pkgDir srcDir
                              ++ cppVersion (ghcVersion $ plan conf)])
                 <> input hsc <> inputList cInputs <> inputs cIncludeDirs
 
+-- Find the "hs-boot" file corresponding to a "hs" file.
+findBootFile :: Artifact -> Action (Maybe Artifact)
+findBootFile hs = do
+    let hsBoot = replaceArtifactExtension hs "hs-boot"
+    bootExists <- doesArtifactExist hsBoot
+    return $ guard bootExists >> return hsBoot
 
 collectCFiles :: PackageDescription -> BuildInfo -> (FilePath -> Artifact) -> Action [Artifact]
 collectCFiles desc bi pkgDir = do

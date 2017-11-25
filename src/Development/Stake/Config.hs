@@ -8,7 +8,9 @@ import Data.Yaml
 import Development.Stake.Stackage
 import Development.Shake
 import Development.Shake.Classes
+import Development.Stake.Command
 import Distribution.Package
+import Distribution.PackageDescription.Parse
 import Distribution.Version
 import GHC.Generics hiding (packageName)
 
@@ -36,7 +38,7 @@ instance FromJSON StackYaml where
 data Config = Config
     { plan :: BuildPlan
     , configExtraDeps :: HM.HashMap PackageName Version
-    , localPackages :: HM.HashMap PackageName FilePath
+    , localPackages :: HM.HashMap PackageName Artifact
     , configGhc :: InstalledGhc
     } deriving Show
 
@@ -45,36 +47,58 @@ askConfig :: StackYaml -> Action Config
 askConfig yaml = do
     p <- askBuildPlan (resolver yaml)
     ghc <- askInstalledGhc (ghcVersion p)
+    -- TODO: don't parse local package defs twice.
+    -- We do it again later so the full PackageDescription
+    -- doesn't need to get saved in the cache.
+    pkgDescs <- mapM (\f -> do
+                                let a = externalFile f
+                                n <- getPackageNameFromDir a
+                                return (n, a))
+                    $ packages yaml
     return Config
         { plan = p
         , configGhc = ghc
-        , localPackages = HM.empty
+        , localPackages = HM.fromList pkgDescs
         , configExtraDeps = HM.fromList $ [ (packageName pkg, packageVersion pkg)
                                           | pkg <- extraDeps yaml
                                           ]
         }
 
-data Resolved = Resolved Way PackageId
+-- TODO: merge with Development.Stake.Package.
+-- Not sure if the semantics around searching for *.cabal files
+-- can be the same.
+getPackageNameFromDir :: Artifact -> Action PackageName
+getPackageNameFromDir a = do
+    cabalFiles <- matchArtifactGlob a "*.cabal"
+    case cabalFiles of
+        [f] -> do
+                cabalContents <- readArtifact f
+                case parsePackageDescription cabalContents of
+                    ParseFailed err -> error $ show err
+                    ParseOk _ pkg -> return $ packageName pkg
+        [] -> error $ "No *.cabal files found in " ++ show a
+        _ -> error $ "Multiple *.cabal files found: " ++ show cabalFiles
+
+data Resolved
+    = Builtin PackageId
+    | Hackage PackageId
+    | Local PackageName Artifact
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable Resolved
 instance Binary Resolved
 instance NFData Resolved
-
-data Way = Builtin | Additional
-    deriving (Show,Typeable,Eq,Generic)
-instance Hashable Way
-instance Binary Way
-instance NFData Way
 
 resolvePackage :: Config -> PackageName -> Resolved
 resolvePackage conf n
     -- TODO: nicer syntax
     -- core packages can't be overridden.  (TODO: is this right?)
     | Just v <- HM.lookup n (corePackageVersions $ plan conf)
-                = Resolved Builtin $ PackageIdentifier n v
+                = Builtin $ PackageIdentifier n v
+    | Just a <- HM.lookup n (localPackages conf)
+                = Local n a
     -- Extra-deps override packages in the build plan:
     | Just v <- HM.lookup n (configExtraDeps conf)
-                = Resolved Additional $ PackageIdentifier n v
+                = Hackage $ PackageIdentifier n v
     | Just v <- HM.lookup n (packageVersions $ plan conf)
-                = Resolved Additional $ PackageIdentifier n v
+                = Hackage $ PackageIdentifier n v
     | otherwise = error $ "Couldn't find package " ++ show n

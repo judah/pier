@@ -25,6 +25,7 @@ module Development.Stake.Command
     , externalFile
     , (/>)
     , relPath
+    , replaceArtifactExtension
     , readArtifact
     , readArtifactB
     , doesArtifactExist
@@ -38,7 +39,6 @@ import Control.Monad.IO.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Base64
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -189,7 +189,7 @@ instance Binary Source
 instance NFData Source
 
 externalFile :: FilePath -> Artifact
-externalFile = Artifact External
+externalFile = Artifact External . normalise
 
 (/>) :: Artifact -> FilePath -> Artifact
 Artifact source f /> g = Artifact source $ normalise $ f </> g
@@ -310,7 +310,7 @@ dedupArtifacts = loop . Set.toAscList
     -- subdirectories with the same hash will appear consecutively after directories
     -- that contain them.
     loop (a@(Artifact (Built h) f) : Artifact (Built h') f' : fs)
-        | h == h', f `List.isPrefixOf` f' = loop (a:fs)
+        | h == h', (f <//> "*") ?== f' = loop (a:fs)
     loop (f:fs) = f : loop fs
     loop [] = []
 
@@ -362,6 +362,10 @@ artifactRealPath :: Artifact -> FilePath
 artifactRealPath (Artifact External f) = f
 artifactRealPath (Artifact (Built h) f) = hashDir h </> f
 
+replaceArtifactExtension :: Artifact -> String -> Artifact
+replaceArtifactExtension (Artifact s f) ext
+    = Artifact s $ replaceExtension f ext
+
 readArtifact :: Artifact -> Action String
 readArtifact (Artifact External f) = readFile' f -- includes need
 readArtifact f = liftIO $ readFile $ artifactRealPath f
@@ -383,7 +387,7 @@ writeArtifact path contents = liftIO $ do
     -- TODO: remove if it already exists?  Should this be Action?
     createParentIfMissing (dir </> path)
     writeFile (dir </> path) contents
-    return $ Artifact (Built h) path
+    return $ Artifact (Built h) $ normalise path
 
 -- I guess we need doesFileExist?  Can we make that robust?
 doesArtifactExist :: Artifact -> Action Bool
@@ -393,7 +397,7 @@ doesArtifactExist f = liftIO $ Directory.doesFileExist (artifactRealPath f)
 matchArtifactGlob :: Artifact -> FilePath -> Action [Artifact]
 -- TODO: match the behavior of Cabal
 matchArtifactGlob (Artifact External f) g
-    = map (Artifact External . (f </>)) <$> getDirectoryFiles f [g]
+    = map (Artifact External . normalise . (f </>)) <$> getDirectoryFiles f [g]
 matchArtifactGlob a@(Artifact (Built h) f) g
-    = fmap (map (Artifact (Built h) . (f </>)))
+    = fmap (map (Artifact (Built h) . normalise . (f </>)))
             $ liftIO $ matchDirFileGlob (artifactRealPath a) g

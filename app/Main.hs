@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Development.Stake (main) where
+module Main (main) where
 
 import Control.Exception (throw)
 import Data.Monoid ((<>))

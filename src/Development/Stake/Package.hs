@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Development.Stake.Package
     ( unpackedCabalPackageDir
+    , getPackageDescription
     ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
@@ -36,13 +37,7 @@ unpackedCabalPackageDir plan pkg = do
     packageSourceDir <- runCommand (output outDir)
         $ prog "tar" ["-xzf", relPath tarball, "-C", takeDirectory outDir]
         <> input tarball
-    -- TODO: better error message when parse fails; and maybe warnings too?
-    cabalContents <- readArtifact $ packageSourceDir
-                                        /> (unPackageName (pkgName pkg) <.> "cabal")
-    let gdesc = case parsePackageDescription cabalContents of
-                    ParseFailed err -> error $ show err
-                    ParseOk _ x -> x
-    desc <- flattenToDefaultFlags plan gdesc
+    desc <- getPackageDescription plan (pkgName pkg) packageSourceDir
     case buildType desc of
         Just Configure -> do
             let configuredDir = "package/configured" </> display pkg
@@ -67,14 +62,24 @@ unpackedCabalPackageDir plan pkg = do
   where
     outDir = "package/raw" </> display pkg
 
+getPackageDescription :: BuildPlan -> PackageName -> Artifact -> Action PackageDescription
+getPackageDescription plan pkg packageSourceDir = do
+    -- TODO: better error message when parse fails; and maybe warnings too?
+    cabalContents <- readArtifact $ packageSourceDir
+                                        /> (display pkg <.> "cabal")
+    gdesc <- case parsePackageDescription cabalContents of
+                    ParseFailed err -> error $ show err
+                    ParseOk _ x -> return x
+    return $ flattenToDefaultFlags plan gdesc
+
 flattenToDefaultFlags
-    :: BuildPlan -> GenericPackageDescription -> Action PackageDescription
-flattenToDefaultFlags plan gdesc = do
-    let desc0 = packageDescription gdesc
-    let flags = HM.fromList [(flagName f, flagDefault f)
+    :: BuildPlan -> GenericPackageDescription -> PackageDescription
+flattenToDefaultFlags plan gdesc = let
+    desc0 = packageDescription gdesc
+    flags = HM.fromList [(flagName f, flagDefault f)
                         | f <- genPackageFlags gdesc
                         ]
-    return desc0 {
+    in desc0 {
         -- TODO: Nothing vs Nothing?
         library = fmap (resolve plan flags) $ condLibrary gdesc
        }

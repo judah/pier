@@ -9,27 +9,9 @@ category: Development
 github: judah/stake
 
 dependencies:
-  - aeson
   - base
-  - base64-bytestring
-  - binary
-  - binary-orphans
-  - bytestring
   - Cabal
-  - containers
-  - cryptohash-sha256
-  - directory
-  - hashable
-  - lens
-  - process
   - shake
-  - transformers
-  - unordered-containers
-  - optparse-applicative
-  - temporary
-  - text
-  - unix
-  - wreq
   - yaml
 
 default-extensions:
@@ -42,8 +24,32 @@ default-extensions:
   - TypeFamilies
   - TypeSynonymInstances
 
+library:
+  source-dirs: 'src'
+  dependencies:
+    - aeson
+    - base64-bytestring
+    - binary
+    - binary-orphans
+    - bytestring
+    - containers
+    - cryptohash-sha256
+    - directory
+    - hashable
+    - lens
+    - process
+    - temporary
+    - text
+    - transformers
+    - unix
+    - unordered-containers
+    - wreq
+
 executables:
   stake:
-    source-dirs: 'src'
-    main: Development.Stake
+    source-dirs: 'app'
+    main: Main.hs
     ghc-options: -threaded -with-rtsopts=-I0
+    dependencies:
+      - optparse-applicative
+      - stake
