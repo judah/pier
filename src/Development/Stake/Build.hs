@@ -141,17 +141,8 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     let pkgPrefixDir = display (packageName $ package desc)
     let lbi = libBuildInfo lib
     let pkgDir = (packageSourceDir />)
-    let sourceDirs = (\ss -> if null ss then [pkgDir "."] else ss)
-                        $ map pkgDir
-                        $ hsSourceDirs lbi
     let hiDir = pkgPrefixDir </> "hi"
     let oDir = pkgPrefixDir </> "o"
-    let modules = otherModules lbi ++ exposedModules lib
-    let cIncludeDirs = transitiveIncludeDirs transDeps
-                        <> Set.map pkgDir (Set.fromList $ ifNull "" $ includeDirs lbi)
-    moduleFiles <- mapM (findModule ghc desc lbi cIncludeDirs sourceDirs)
-                        modules
-    moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
     let libName = "HS" ++ display (packageName $ package desc)
     let libFile = pkgPrefixDir </> "lib" ++ libName ++ "-ghc"
                                 ++ display (ghcVersion $ plan conf) <.> dynExt
@@ -161,8 +152,6 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     let compileOut = liftA2 (\linked hi -> (linked, Set.fromList [linked,hi]))
                         (output libFile)
                         (output hiDir)
-    let ghcInputs = Set.fromList (moduleFiles ++ moduleBootFiles)
-                            <> Set.fromList cInputs
     let args =
             [ "-this-unit-id", display $ package desc
             , "-hidir", hiDir
@@ -171,16 +160,12 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
             , "-fPIC"
             , "-o", libFile
             ]
-            -- TODO: is this include excessive?
-            ++ ["-i" ++ relPath d | d <-  sourceDirs]
-            ++ map relPath moduleFiles
-            ++ map (relPath . pkgDir) (cSources lbi)
     (maybeLinked, libFiles)  <- if not shouldBuildLib
             then return (Nothing, Set.empty)
             else fmap (first Just)
-                    $ runCommand
-                        compileOut (invokeGhc ghc deps lbi packageSourceDir args
-                                        <> inputs ghcInputs)
+                    $ runGhc ghc deps desc lbi packageSourceDir args
+                        (exposedModules lib ++ otherModules lbi)
+                        compileOut
     spec <- writeArtifact (pkgPrefixDir </> "spec") $ unlines $
         [ "name: " ++ display (packageName (package desc))
         , "version: " ++ display (packageVersion (package desc))
@@ -214,29 +199,53 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                 , transitiveIncludeDirs = Set.empty
                 }
 
-invokeGhc
+runGhc
     :: InstalledGhc
     -> BuiltDeps
+    -> PackageDescription
     -> BuildInfo
     -> Artifact -- ^ package directory
     -> [String]
-    -> Command
-invokeGhc ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir extraArgs
-    = ghcProg ghc args
-        <> inputs (transitiveDBs transDeps)
-        <> inputs (transitiveLibFiles transDeps)
+    -> [ModuleName]
+    -> Output a
+    -> Action a
+runGhc ghc (BuiltDeps depPkgs transDeps) desc bi packageSourceDir extraArgs
+    modules output
+    = do
+        let cIncludeDirs =
+                transitiveIncludeDirs transDeps
+                    <> Set.map pkgDir (Set.fromList $ ifNull ""
+                                            $ includeDirs bi)
+        moduleFiles <- mapM (findModule ghc desc bi cIncludeDirs sourceDirs)
+                            modules
+        moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
+        cInputs <- collectCFiles desc bi pkgDir
+        let inputFiles = moduleFiles ++ moduleBootFiles ++ cInputs
+        runCommand output
+            $ ghcProg ghc (args
+                            ++ map relPath moduleFiles
+                            ++ map (relPath . pkgDir) (cSources bi))
+            <> inputList inputFiles
+            <> inputs (transitiveDBs transDeps)
+            <> inputs (transitiveLibFiles transDeps)
   where
     pkgDir = (packageSourceDir />)
     extensions =
         display (fromMaybe Haskell98 $ defaultLanguage bi)
             : map display (defaultExtensions bi ++ oldExtensions bi)
+    sourceDirs = map pkgDir $ ifNull "" $ hsSourceDirs bi
     args =
         [ "-ddump-to-file"
         , "-v0"
         , "-dynamic"
         , "-i"
+        -- Necessary for boot files:
+        ]
+        ++
+        ["-i" ++ relPath d | d <- sourceDirs]
+        ++
         -- TODO: allow static linking
-        , "-dynamic"
+        [ "-dynamic"
         , "-hisuf", "dyn_hi"
         , "-osuf", "dyn_o"
         ]
@@ -354,7 +363,11 @@ findBootFile hs = do
     bootExists <- doesArtifactExist hsBoot
     return $ guard bootExists >> return hsBoot
 
-collectCFiles :: PackageDescription -> BuildInfo -> (FilePath -> Artifact) -> Action [Artifact]
+collectCFiles
+    :: PackageDescription
+    -> BuildInfo
+    -> (FilePath -> Artifact)
+    -> Action [Artifact]
 collectCFiles desc bi pkgDir = do
     includeInputs <- findIncludeInputs pkgDir bi
     extras <- fmap concat $ mapM (\f -> matchArtifactGlob (pkgDir "") f)
