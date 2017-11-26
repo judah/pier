@@ -9,8 +9,8 @@ import Development.Stake.Stackage
 import Development.Shake
 import Development.Shake.Classes
 import Development.Stake.Command
+import Development.Stake.Package
 import Distribution.Package
-import Distribution.PackageDescription.Parse
 import Distribution.Version
 import GHC.Generics hiding (packageName)
 
@@ -53,8 +53,8 @@ askConfig yaml = do
     -- doesn't need to get saved in the cache.
     pkgDescs <- mapM (\f -> do
                                 let a = externalFile f
-                                n <- getPackageNameFromDir a
-                                return (n, a))
+                                pkg <- parseCabalFileInDir a
+                                return (packageName pkg, a))
                     $ packages yaml
     return Config
         { plan = p
@@ -65,25 +65,10 @@ askConfig yaml = do
                                           ]
         }
 
--- TODO: merge with Development.Stake.Package.
--- Not sure if the semantics around searching for *.cabal files
--- can be the same.
-getPackageNameFromDir :: Artifact -> Action PackageName
-getPackageNameFromDir a = do
-    cabalFiles <- matchArtifactGlob a "*.cabal"
-    case cabalFiles of
-        [f] -> do
-                cabalContents <- readArtifact f
-                case parsePackageDescription cabalContents of
-                    ParseFailed err -> error $ show err
-                    ParseOk _ pkg -> return $ packageName pkg
-        [] -> error $ "No *.cabal files found in " ++ show a
-        _ -> error $ "Multiple *.cabal files found: " ++ show cabalFiles
-
 data Resolved
     = Builtin PackageId
     | Hackage PackageId
-    | Local PackageName Artifact
+    | Local Artifact
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable Resolved
 instance Binary Resolved
@@ -96,7 +81,7 @@ resolvePackage conf n
     | Just v <- HM.lookup n (corePackageVersions $ plan conf)
                 = Builtin $ PackageIdentifier n v
     | Just a <- HM.lookup n (localPackages conf)
-                = Local n a
+                = Local a
     -- Extra-deps override packages in the build plan:
     | Just v <- HM.lookup n (configExtraDeps conf)
                 = Hackage $ PackageIdentifier n v

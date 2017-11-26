@@ -109,13 +109,17 @@ buildResolved _ conf (Builtin p) = do
                                     $ map (parseGlobalPackagePath ghc)
                                     $ IP.includeDirs info
                         }
-buildResolved stackYaml conf (Hackage p) = do
-    (desc, packageSourceDir) <- unpackedCabalPackageDir (plan conf) p
-    buildFromDesc stackYaml conf packageSourceDir desc
+buildResolved stackYaml conf (Hackage p) =
+    getPackageSourceDir p >>= buildPackageInDir stackYaml conf
 
-buildResolved stackYaml conf (Local p dir) = do
-    desc <- getPackageDescription (plan conf) p dir
-    buildFromDesc stackYaml conf dir desc
+-- TODO: don't copy everything if the local package is configured?
+buildResolved stackYaml conf (Local dir) =
+    buildPackageInDir stackYaml conf dir
+
+buildPackageInDir :: StackYaml -> Config -> Artifact -> Action BuiltPackage
+buildPackageInDir stackYaml conf packageSourceDir = do
+    (desc, dir') <- configurePackage (plan conf) packageSourceDir
+    buildFromDesc stackYaml conf dir' desc
 
 buildFromDesc
     :: StackYaml -> Config -> Artifact -> PackageDescription -> Action BuiltPackage

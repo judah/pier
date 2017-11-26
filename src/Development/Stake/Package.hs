@@ -1,7 +1,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Development.Stake.Package
-    ( unpackedCabalPackageDir
-    , getPackageDescription
+    ( getPackageSourceDir
+    , configurePackage
+    , parseCabalFileInDir
     ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
@@ -31,21 +32,28 @@ downloadCabalPackage pkg = do
         , downloadUrlPrefix = "https://hackage.haskell.org/package" </> n
         }
 
-unpackedCabalPackageDir :: BuildPlan -> PackageIdentifier -> Action (PackageDescription, Artifact)
-unpackedCabalPackageDir plan pkg = do
+getPackageSourceDir :: PackageIdentifier -> Action Artifact
+getPackageSourceDir pkg = do
     tarball <- downloadCabalPackage pkg
-    packageSourceDir <- runCommand (output outDir)
+    runCommand (output outDir)
         $ prog "tar" ["-xzf", relPath tarball, "-C", takeDirectory outDir]
         <> input tarball
-    desc <- getPackageDescription plan (pkgName pkg) packageSourceDir
+  where
+    outDir = "package/raw" </> display pkg
+
+configurePackage :: BuildPlan -> Artifact -> Action (PackageDescription, Artifact)
+configurePackage plan packageSourceDir = do
+    gdesc <- parseCabalFileInDir packageSourceDir
+    let desc = flattenToDefaultFlags plan gdesc
+    let name = display (packageName desc)
     case buildType desc of
         Just Configure -> do
-            let configuredDir = "package/configured" </> display pkg
+            let configuredDir = "package/configured" </> name
             configuredPackage <- runCommand (output configuredDir)
                 $ copyArtifact packageSourceDir configuredDir
                 <> withCwd configuredDir (progTemp (configuredDir </> "configure") [])
             let buildInfoFile = configuredPackage />
-                                    (unPackageName (pkgName pkg) <.> "buildinfo")
+                                    (name <.> "buildinfo")
             buildInfoExists <- doesArtifactExist buildInfoFile
             desc' <- if buildInfoExists
                 then do
@@ -58,18 +66,23 @@ unpackedCabalPackageDir plan pkg = do
             return (desc', configuredPackage)
         -- Best effort: ignore custom setup scripts.
         _ -> return (desc, packageSourceDir)
-  where
-    outDir = "package/raw" </> display pkg
 
-getPackageDescription :: BuildPlan -> PackageName -> Artifact -> Action PackageDescription
-getPackageDescription plan pkg packageSourceDir = do
+parseCabalFileInDir :: Artifact -> Action GenericPackageDescription
+parseCabalFileInDir dir = do
+    cabalFile <- findCabalFile dir
+    cabalContents <- readArtifact cabalFile
     -- TODO: better error message when parse fails; and maybe warnings too?
-    cabalContents <- readArtifact $ packageSourceDir
-                                        /> (display pkg <.> "cabal")
-    gdesc <- case parsePackageDescription cabalContents of
-                    ParseFailed err -> error $ show err
-                    ParseOk _ x -> return x
-    return $ flattenToDefaultFlags plan gdesc
+    case parsePackageDescription cabalContents of
+        ParseFailed err -> error $ show err
+        ParseOk _ pkg -> return pkg
+
+findCabalFile :: Artifact -> Action Artifact
+findCabalFile dir = do
+    cabalFiles <- matchArtifactGlob dir "*.cabal"
+    case cabalFiles of
+        [f] -> return f
+        [] -> error $ "No *.cabal files found in " ++ show dir
+        _ -> error $ "Multiple *.cabal files found: " ++ show cabalFiles
 
 flattenToDefaultFlags
     :: BuildPlan -> GenericPackageDescription -> PackageDescription
