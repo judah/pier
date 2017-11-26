@@ -65,7 +65,7 @@ opts = info args mempty
 
 runWithOptions :: CommandOpt -> Rules ()
 runWithOptions Clean = cleanBuild
-runWithOptions CleanAll = cleanAll
+runWithOptions CleanAll =  liftIO unfreezeArtifacts >> cleanAll
 runWithOptions (Build yamlPath pkgs)
     = action $ do
         yamlE <- liftIO $ Yaml.decodeFileEither yamlPath

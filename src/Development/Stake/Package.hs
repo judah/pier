@@ -42,9 +42,8 @@ unpackedCabalPackageDir plan pkg = do
         Just Configure -> do
             let configuredDir = "package/configured" </> display pkg
             configuredPackage <- runCommand (output configuredDir)
-                $ prog "cp" ["-R", relPath packageSourceDir, configuredDir]
+                $ copyArtifact packageSourceDir configuredDir
                 <> withCwd configuredDir (progTemp (configuredDir </> "configure") [])
-                <> input packageSourceDir
             let buildInfoFile = configuredPackage />
                                     (unPackageName (pkgName pkg) <.> "buildinfo")
             buildInfoExists <- doesArtifactExist buildInfoFile

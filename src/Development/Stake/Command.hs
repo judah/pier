@@ -31,6 +31,8 @@ module Development.Stake.Command
     , doesArtifactExist
     , writeArtifact
     , matchArtifactGlob
+    , unfreezeArtifacts
+    , copyArtifact
     ) where
 
 import Crypto.Hash.SHA256
@@ -137,6 +139,17 @@ inputList = inputs . Set.fromList
 inputs :: Set Artifact -> Command
 inputs = Command []
 
+-- | TODO: figure out more light-weight ways of achieving the same effect
+copyArtifact :: Artifact -> FilePath -> Command
+copyArtifact src dest
+    | isAbsolute dest
+        = error $ "copyArtifact: requires relative destination, found " ++ show dest
+    | otherwise = prog "cp" ["-pRL", relPath src, dest]
+                    -- Unfreeze the files so they can be modified by later calls within
+                    -- the same `runCommand`
+                    <> prog "chmod" ["-R", "u+w", dest]
+                    <> input src
+
 data Output a = Output [FilePath] (Hash -> a)
 
 instance Functor Output where
@@ -165,7 +178,10 @@ makeHash = Hash . fixBase64Path . encode . hash . T.encodeUtf8 . T.pack
                                 c -> c
 
 hashDir :: Hash -> FilePath
-hashDir h = stakeFile $ "artifact" </> hashString h
+hashDir h = artifactDir </> hashString h
+
+artifactDir :: FilePath
+artifactDir = stakeFile "artifact"
 
 hashString :: Hash -> String
 hashString (Hash h) = BC.unpack h
@@ -316,9 +332,15 @@ dedupArtifacts = loop . Set.toAscList
 
 renameAndFreezeFile :: FilePath -> FilePath -> IO ()
 renameAndFreezeFile src dest = do
-    let freeze f = getPermissions f >>= setPermissions f . setOwnerWritable False
-    forFileRecursive_ freeze src
     renamePath src dest
+    let freeze f = getPermissions f >>= setPermissions f . setOwnerWritable False
+    forFileRecursive_ freeze dest
+
+-- | Make all artifacts user-writable, so they can be deleted by `clean-all`.
+unfreezeArtifacts :: IO ()
+unfreezeArtifacts = forFileRecursive_ unfreeze artifactDir
+  where
+    unfreeze f = getPermissions f >>= setPermissions f . setOwnerWritable True
 
 -- TODO: don't loop on symlinks, and be more efficient?
 forFileRecursive_ :: (FilePath -> IO ()) -> FilePath -> IO ()
@@ -329,6 +351,7 @@ forFileRecursive_ act f = do
         else do
             fs <- filter (not . specialFile) <$> Directory.getDirectoryContents f
             mapM_ (forFileRecursive_ act) $ map (f </>) fs
+            act f
   where
     specialFile "." = True
     specialFile ".." = True

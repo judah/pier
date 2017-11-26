@@ -239,11 +239,11 @@ downloadAndInstallGHC version download = do
                     -- -J extracts XZ files; which is currently used for all
                     -- ghc versions in stack-setup2.yaml.
                     $ input tar <> prog "tar" ["-xJf", relPath tar]
+    let untarredCopy = "ghc-temp"
     installed <- runCommand
        (output installDir)
-       $ input untarred
-          <> withCwd (relPath untarred)
-                -- TODO: should this really be external?
+       $ copyArtifact untarred untarredCopy
+          <> withCwd untarredCopy
                 (progTemp (relPath untarred </> "configure") ["--prefix=" ++ temp]
                 <> prog "make" ["install"])
           <> prog "mv" [temp, installDir]
