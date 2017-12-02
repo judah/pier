@@ -139,78 +139,36 @@ buildLibrary
     -> Artifact
     -> PackageDescription -> Library
     -> Action BuiltPackage
-buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
+buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     let ghc = configGhc conf
     putNormal $ "Building " ++ display (package desc)
     let pkgPrefixDir = display (packageName $ package desc)
     let lbi = libBuildInfo lib
-    let pkgDir = (packageSourceDir />)
-    let sourceDirs = (\ss -> if null ss then [pkgDir "."] else ss)
-                        $ map pkgDir
-                        $ hsSourceDirs lbi
     let hiDir = pkgPrefixDir </> "hi"
     let oDir = pkgPrefixDir </> "o"
-    let modules = otherModules lbi ++ exposedModules lib
-    let cIncludeDirs = transitiveIncludeDirs transDeps
-                        <> Set.map pkgDir (Set.fromList $ ifNull "" $ includeDirs lbi)
-    moduleFiles <- mapM (findModule ghc desc lbi cIncludeDirs sourceDirs)
-                        modules
-    moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
     let libName = "HS" ++ display (packageName $ package desc)
     let libFile = pkgPrefixDir </> "lib" ++ libName ++ "-ghc"
                                 ++ display (ghcVersion $ plan conf) <.> dynExt
-    cInputs <- collectCFiles desc lbi pkgDir
     -- TODO: Actual LTS version ghc.
     let shouldBuildLib = not $ null $ exposedModules lib
     let compileOut = liftA2 (\linked hi -> (linked, Set.fromList [linked,hi]))
                         (output libFile)
                         (output hiDir)
-    let ghcInputs = Set.fromList (moduleFiles ++ moduleBootFiles)
-                            <> transitiveDBs transDeps
-                            <> transitiveLibFiles transDeps
-                            <> Set.fromList cInputs
     let args =
-            [ "-ddump-to-file"
-            , "-this-unit-id", display $ package desc
-            , "-i"
+            [ "-this-unit-id", display $ package desc
             , "-hidir", hiDir
             , "-odir", oDir
-            , "-v0"
-            -- TODO: allow static linking
-            , "-dynamic"
-            , "-hisuf", "dyn_hi"
-            , "-osuf", "dyn_o"
             , "-shared"
             , "-fPIC"
             , "-o", libFile
             ]
-            ++
-            concat (map (\p -> ["-package-db", relPath p])
-                    $ Set.toList $ transitiveDBs transDeps)
-            ++
-            concat [["-package", display d] | d <- depPkgs]
-            ++ map ("-I"++) (map (relPath . pkgDir) $ includeDirs lbi)
-            ++ map ("-X" ++)
-                (display (fromMaybe Haskell98 $ defaultLanguage lbi)
-                : map display (defaultExtensions lbi ++ oldExtensions lbi))
-            ++ concat [opts | (GHC,opts) <- options lbi]
-            ++ map ("-optP" ++) (cppOptions lbi)
-            -- TODO: configurable
-            ++ ["-O0"]
-            -- TODO: enable warnings for local builds
-            ++ ["-w"]
-            -- TODO: this include is excessive?  I think so...
-            ++ ["-i" ++ relPath d | d <-  sourceDirs]
-            ++ map relPath moduleFiles
-            ++ map (relPath . pkgDir) (cSources lbi)
-            ++ ["-optc" ++ opt | opt <- ccOptions lbi]
-            ++ ["-l" ++ libDep | libDep <- extraLibs lbi]
-            -- TODO: linker options too?
     (maybeLinked, libFiles)  <- if not shouldBuildLib
             then return (Nothing, Set.empty)
             else fmap (first Just)
-                    $ runCommand
-                        compileOut (ghcProg ghc args <> inputs ghcInputs)
+                    $ runGhc (configGhc conf) deps desc lbi packageSourceDir
+                            args
+                            (otherModules lbi ++ exposedModules lib)
+                            compileOut
     spec <- writeArtifact (pkgPrefixDir </> "spec") $ unlines $
         [ "name: " ++ display (packageName (package desc))
         , "version: " ++ display (packageVersion (package desc))
@@ -243,6 +201,73 @@ buildLibrary conf (BuiltDeps depPkgs transDeps) packageSourceDir desc lib = do
                 -- TODO:
                 , transitiveIncludeDirs = Set.empty
                 }
+
+runGhc
+    :: InstalledGhc
+    -> BuiltDeps
+    -> PackageDescription
+    -> BuildInfo
+    -> Artifact -- ^ package directory
+    -> [String]  -- ^ other args to GHC
+    -> [ModuleName]
+    -> Output a
+    -> Action a
+runGhc ghc (BuiltDeps depPkgs transDeps) desc bi packageSourceDir extraArgs
+    modules out = do
+    moduleFiles <- mapM (findModule ghc desc bi cIncludeDirs sourceDirs)
+                        modules
+    moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
+    cInputs <- collectCFiles desc bi pkgDir
+    let inputFiles = moduleFiles ++ moduleBootFiles ++ cInputs
+    runCommand out
+        $ ghcProg ghc (args
+                        ++ map relPath moduleFiles
+                        ++ map (relPath . pkgDir) (cSources bi))
+        <> inputList inputFiles
+        <> inputs (transitiveDBs transDeps)
+        <> inputs (transitiveLibFiles transDeps)
+  where
+    pkgDir = (packageSourceDir />)
+    cIncludeDirs = transitiveIncludeDirs transDeps
+                        <> Set.map pkgDir (Set.fromList $ ifNull ""
+                                                $ includeDirs bi)
+    extensions =
+        display (fromMaybe Haskell98 $ defaultLanguage bi)
+            : map display (defaultExtensions bi ++ oldExtensions bi)
+    sourceDirs = map pkgDir $ ifNull "" $ hsSourceDirs bi
+    args =
+        [ "-ddump-to-file"
+        , "-v0"
+        , "-dynamic"
+        , "-i"
+        ]
+        ++
+        -- Necessary for boot files:
+        ["-i" ++ relPath d | d <- sourceDirs]
+        ++
+        -- TODO: allow static linking
+        [ "-dynamic"
+        , "-hisuf", "dyn_hi"
+        , "-osuf", "dyn_o"
+        ]
+        ++
+        concat (map (\p -> ["-package-db", relPath p])
+                $ Set.toList $ transitiveDBs transDeps)
+        ++
+        concat [["-package", display d] | d <- depPkgs]
+        ++ map ("-I"++) (map (relPath . pkgDir) $ includeDirs bi)
+        ++ map ("-X" ++) extensions
+        ++ concat [opts | (GHC,opts) <- options bi]
+        ++ map ("-optP" ++) (cppOptions bi)
+        -- TODO: configurable
+        ++ ["-O0"]
+        -- TODO: enable warnings for local builds
+        ++ ["-w"]
+        ++ ["-optc" ++ opt | opt <- ccOptions bi]
+        ++ ["-l" ++ libDep | libDep <- extraLibs bi]
+        -- TODO: linker options too?
+        ++ extraArgs
+
 
 dynExt :: String
 dynExt = case buildOS of
@@ -299,10 +324,10 @@ search
     -> Artifact -- ^ Source directory to check
     -> MaybeT Action Artifact
 search ghc bi cIncludeDirs m srcDir
-    = genHsc2hs <|> 
-      genHappy "y" <|> 
-      genHappy "ly" <|> 
-      genAlex "x" <|> 
+    = genHsc2hs <|>
+      genHappy "y" <|>
+      genHappy "ly" <|>
+      genAlex "x" <|>
       existing
   where
     genHappy ext = do
