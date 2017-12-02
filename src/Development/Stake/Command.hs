@@ -264,13 +264,12 @@ runCommand_ = runCommand (pure ())
 commandRules :: Rules ()
 commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
     h <- commandHash cmdQ
-    let dir = hashDir h
-    liftIO $ createParentIfMissing dir
-    -- Explicitly create the directory; if it already exists, throw an
-    -- exception since something's gone wrong.  (TODO: better error message)
-    liftIO $ createDirectory dir
-    -- Make sure to clean up this directory if the command fails.
-    flip actionOnException (removeDirectoryRecursive dir) $ do
+    let outDir = hashDir h
+    -- Skip if the output directory already exists; we'll produce it atomically
+    -- below.  This could happen if the action stops before Shake registers it as
+    -- complete, due to either a synchronous or asynchronous exception.
+    exists <- liftIO $ Directory.doesDirectoryExist outDir
+    when (not exists) $ do
         tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
                                                         (hashString h)
         let inps = dedupArtifacts inps'
@@ -297,11 +296,15 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
                         when (not exist) $
                             error $ "runCommand: missing output "
                                     ++ show f
-        mapM_ (createParentIfMissing . (dir </>)) outs
-        liftIO $ mapM_ (\f -> renameAndFreezeFile (tmp </> f) (dir </> f)) outs
+        liftIO $ withSystemTempDirectory (hashString h) $ \tempOutDir -> do
+            mapM_ (createParentIfMissing . (tempOutDir </>)) outs
+            mapM_ (\f -> renameAndFreezeFile (tmp </> f) (tempOutDir </> f)) outs
+            createParentIfMissing outDir
+            -- Make the output directory appear atomically (see above).
+            Directory.renameDirectory tempOutDir outDir
         -- Clean up the temp directory, but only if the above commands succeeded.
         liftIO $ removeDirectoryRecursive tmp
-        return h
+    return h
 
 stdoutPath :: FilePath
 stdoutPath = ".stdout"
@@ -338,7 +341,9 @@ renameAndFreezeFile src dest = do
 
 -- | Make all artifacts user-writable, so they can be deleted by `clean-all`.
 unfreezeArtifacts :: IO ()
-unfreezeArtifacts = forFileRecursive_ unfreeze artifactDir
+unfreezeArtifacts = do
+    exists <- Directory.doesDirectoryExist artifactDir
+    when exists $ forFileRecursive_ unfreeze artifactDir
   where
     unfreeze f = getPermissions f >>= setPermissions f . setOwnerWritable True
 
