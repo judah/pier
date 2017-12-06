@@ -16,6 +16,7 @@ module Development.Stake.Command
     , input
     , inputs
     , inputList
+    , message
     , withCwd
     , runCommand
     , runCommandStdout
@@ -85,17 +86,20 @@ instance Hashable Call
 instance Binary Call
 instance NFData Call
 
-data Prog = Prog { progCall :: Call
-                 , progArgs :: [String]
-                 , progCwd :: FilePath  -- relative to the root of the sandbox
-                 }
+data Prog
+    = Prog { progCall :: Call
+           , progArgs :: [String]
+           , progCwd :: FilePath  -- relative to the root of the sandbox
+           }
+    | Message String
     deriving (Typeable, Eq, Generic)
 instance Hashable Prog
 instance Binary Prog
 instance NFData Prog
 
 instance Show Prog where
-    show p = "(" ++ maybeCd
+    show (Message s) = "(Message " ++ show s ++ ")"
+    show p@Prog{} = "(" ++ maybeCd
                 ++ showCommandForUser (showCall $ progCall p) (progArgs p) ++ ")"
       where
         maybeCd
@@ -125,10 +129,16 @@ progA p as = Command [Prog (CallArtifact p) as "."] (Set.singleton p)
 progTemp :: FilePath -> [String] -> Command
 progTemp p as = Command [Prog (CallTemp p) as "."] Set.empty
 
+message :: String -> Command
+message s = Command [Message s] Set.empty
+
 withCwd :: FilePath -> Command -> Command
 withCwd path (Command ps as)
     | isAbsolute path = error $ "withCwd: expected relative path, got " ++ show path
-    | otherwise = Command (map (\p -> p { progCwd = path }) ps) as
+    | otherwise = Command (map setPath ps) as
+  where
+    setPath m@Message{} = m
+    setPath p = p { progCwd = path }
 
 input :: Artifact -> Command
 input = inputs . Set.singleton
@@ -280,7 +290,8 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
         -- TODO: more flexibility around the env vars
         -- Also: limit valid parameters for the *prog* binary (rather than taking it
         -- from the PATH that the `stake` executable sees).
-        let run (Prog p as cwd) = do
+        let run (Message s) = putNormal s >> return B.empty
+            run (Prog p as cwd) = do
                     -- hack around shake weirdness w.r.t. relative binary paths
                     let p' = case p of
                                 CallEnv s -> s

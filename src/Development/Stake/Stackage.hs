@@ -224,7 +224,6 @@ downloadAndInstallGHC version download = do
             }
     -- TODO: check file size and sha1
     let installDir = "ghc-install"
-    putNormal "Installing GHC"
     -- TODO: make this more deterministic:
     -- GHC refuses to get installed in a relative directory.
     -- So, fake it by "installing" in a temp directory, then moving it to the
@@ -238,13 +237,15 @@ downloadAndInstallGHC version download = do
                 in runCommand (output unpackedDir)
                     -- -J extracts XZ files; which is currently used for all
                     -- ghc versions in stack-setup2.yaml.
-                    $ input tar <> prog "tar" ["-xJf", relPath tar]
+                    $ input tar <> message "Unpacking GHC"
+                    <> prog "tar" ["-xJf", relPath tar]
     let untarredCopy = "ghc-temp"
     installed <- runCommand
        (output installDir)
        $ copyArtifact untarred untarredCopy
           <> withCwd untarredCopy
-                (progTemp (relPath untarred </> "configure") ["--prefix=" ++ temp]
+                (message "Installing GHC"
+                <> progTemp (relPath untarred </> "configure") ["--prefix=" ++ temp]
                 <> prog "make" ["install"])
           <> prog "mv" [temp, installDir]
     fixed <- makeRelativeGlobalDb temp

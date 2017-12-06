@@ -141,7 +141,6 @@ buildLibrary
     -> Action BuiltPackage
 buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     let ghc = configGhc conf
-    putNormal $ "Building " ++ display (package desc)
     let pkgPrefixDir = display (packageName $ package desc)
     let lbi = libBuildInfo lib
     let hiDir = pkgPrefixDir </> "hi"
@@ -220,7 +219,8 @@ runGhc ghc (BuiltDeps depPkgs transDeps) desc bi packageSourceDir extraArgs
     cInputs <- collectCFiles desc bi pkgDir
     let inputFiles = moduleFiles ++ moduleBootFiles ++ cInputs
     runCommand out
-        $ ghcProg ghc (args
+        $ message ("Building " ++ display (package desc))
+        <> ghcProg ghc (args
                         ++ map relPath moduleFiles
                         ++ map (relPath . pkgDir) (cSources bi))
         <> inputList inputFiles
