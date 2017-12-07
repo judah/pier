@@ -10,7 +10,6 @@ import Control.Applicative (liftA2, (<|>))
 import Control.Monad (filterM, guard, msum)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
-import Data.Bifunctor (first)
 import Data.List (nub)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Semigroup
@@ -79,8 +78,10 @@ askBuiltDeps
     -> Action BuiltDeps
 askBuiltDeps stackYaml pkgs = do
     deps <- askBuiltPackages stackYaml pkgs
-    return $ BuiltDeps (map builtPackageId deps)
+    return $ BuiltDeps (dedup $ map builtPackageId deps)
                   (foldMap builtPackageTrans deps)
+  where
+    dedup = Set.toList . Set.fromList
 
 buildPackage :: BuiltPackageR -> Action BuiltPackage
 buildPackage (BuiltPackageR stackYaml pkg) = do
@@ -150,7 +151,7 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                                 ++ display (ghcVersion $ plan conf) <.> dynExt
     -- TODO: Actual LTS version ghc.
     let shouldBuildLib = not $ null $ exposedModules lib
-    let compileOut = liftA2 (\linked hi -> (linked, Set.fromList [linked,hi]))
+    let compileOut = liftA2 (\linked hi -> (Set.fromList [linked,hi]))
                         (output libFile)
                         (output hiDir)
     let args =
@@ -171,43 +172,21 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                         modules
     moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
     cIncludes <- collectCIncludes desc lbi pkgDir
-    (maybeLinked, libFiles)  <- if not shouldBuildLib
+    (maybeLib, libFiles)  <- if not shouldBuildLib
             then return (Nothing, Set.empty)
-            else fmap (first Just)
+            else fmap (\libFiles -> (Just (libName, lib), libFiles))
                     $ runCommand compileOut
                     $ message ("Building " ++ display (package desc))
                     <> inputList (moduleBootFiles ++ cIncludes)
                     <> ghcCommand (configGhc conf) deps lbi packageSourceDir
                             args
                             (moduleFiles ++ map pkgDir (cSources lbi))
-    spec <- writeArtifact (pkgPrefixDir </> "spec") $ unlines $
-        [ "name: " ++ display (packageName (package desc))
-        , "version: " ++ display (packageVersion (package desc))
-        , "id: " ++ display (package desc)
-        , "key: " ++ display (package desc)
-        , "extra-libraries: " ++ unwords (extraLibs lbi)
-        ]
-        ++ case maybeLinked of
-            Nothing -> []
-            Just _ ->
-                     [ "hs-libraries: " ++ libName
-                     , "library-dirs: ${pkgroot}"
-                     , "import-dirs: ${pkgroot}/hi"
-                     , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
-                     , "hidden-modules: " ++ unwords (map display $ otherModules lbi)
-                     ]
-    pkgDb' <-
-        let relPkgDb = pkgPrefixDir </> "db"
-        in runCommand (output relPkgDb)
-                $ ghcPkgProg ghc ["init", relPkgDb]
-                    <> ghcPkgProg ghc
-                            ["-v0", "--package-db", relPkgDb, "register",
-                                   relPath spec]
-                    <> input spec
-                    <> inputs libFiles
+
+    pkgDb <- registerPackage ghc pkgPrefixDir (package desc) lbi maybeLib
+                deps libFiles
     return $ BuiltPackage (package desc)
             $ transDeps <> TransitiveDeps
-                { transitiveDBs = Set.singleton pkgDb'
+                { transitiveDBs = Set.singleton pkgDb
                 , transitiveLibFiles = libFiles
                 -- TODO:
                 , transitiveIncludeDirs = Set.empty
@@ -268,6 +247,51 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir
 sourceDirArtifacts :: Artifact -> BuildInfo -> [Artifact]
 sourceDirArtifacts packageSourceDir bi
     = map (packageSourceDir />) $ ifNull "" $ hsSourceDirs bi
+
+registerPackage
+    :: InstalledGhc
+    -> String -- ^ output prefix dir
+    -> PackageIdentifier
+    -> BuildInfo
+    -> Maybe ( String  -- Library name for linking
+             , Library)
+    -> BuiltDeps
+    -> Set Artifact
+    -> Action Artifact
+registerPackage ghc outPrefix pkg bi maybeLib (BuiltDeps depPkgs transDeps)
+    libFiles
+    = do
+    spec <- writeArtifact (outPrefix </> "spec") $ unlines $
+        [ "name: " ++ display (packageName pkg)
+        , "version: " ++ display (packageVersion pkg)
+        , "id: " ++ display pkg
+        , "key: " ++ display pkg
+        , "extra-libraries: " ++ unwords (extraLibs bi)
+        , "depends: " ++ unwords (map display depPkgs)
+        ]
+        ++ case maybeLib of
+            Nothing -> []
+            Just (libName, lib) ->
+                     [ "hs-libraries: " ++ libName
+                     , "library-dirs: ${pkgroot}"
+                     , "import-dirs: ${pkgroot}/hi"
+                     , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
+                     , "hidden-modules: " ++ unwords (map display $ otherModules bi)
+                     ]
+    let relPkgDb = outPrefix </> "db"
+    runCommand (output relPkgDb)
+        $ ghcPkgProg ghc ["init", relPkgDb]
+            <> ghcPkgProg ghc
+                    (["-v0"]
+                    ++ [ "--package-db=" ++ relPath f
+                       | f <-  Set.toList $ transitiveDBs transDeps
+                       ]
+                    ++ ["--package-db", relPkgDb, "register",
+                               relPath spec])
+            <> input spec
+            <> inputs libFiles
+            <> inputs (transitiveDBs transDeps)
+
 
 dynExt :: String
 dynExt = case buildOS of
