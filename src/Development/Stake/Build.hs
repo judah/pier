@@ -161,13 +161,25 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
             , "-fPIC"
             , "-o", libFile
             ]
+    let pkgDir = (packageSourceDir />)
+    let modules = otherModules lbi ++ exposedModules lib
+    let cIncludeDirs = transitiveIncludeDirs transDeps
+                        <> Set.map pkgDir (Set.fromList $ ifNull ""
+                                                $ includeDirs lbi)
+    moduleFiles <- mapM (findModule ghc desc lbi cIncludeDirs
+                            $ sourceDirArtifacts packageSourceDir lbi)
+                        modules
+    moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
+    cIncludes <- collectCIncludes desc lbi pkgDir
     (maybeLinked, libFiles)  <- if not shouldBuildLib
             then return (Nothing, Set.empty)
             else fmap (first Just)
-                    $ runGhc (configGhc conf) deps desc lbi packageSourceDir
+                    $ runCommand compileOut
+                    $ message ("Building " ++ display (package desc))
+                    <> inputList (moduleBootFiles ++ cIncludes)
+                    <> ghcCommand (configGhc conf) deps lbi packageSourceDir
                             args
-                            (otherModules lbi ++ exposedModules lib)
-                            compileOut
+                            (moduleFiles ++ map pkgDir (cSources lbi))
     spec <- writeArtifact (pkgPrefixDir </> "spec") $ unlines $
         [ "name: " ++ display (packageName (package desc))
         , "version: " ++ display (packageVersion (package desc))
@@ -201,49 +213,34 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                 , transitiveIncludeDirs = Set.empty
                 }
 
-runGhc
+ghcCommand
     :: InstalledGhc
     -> BuiltDeps
-    -> PackageDescription
     -> BuildInfo
-    -> Artifact -- ^ package directory
-    -> [String]  -- ^ other args to GHC
-    -> [ModuleName]
-    -> Output a
-    -> Action a
-runGhc ghc (BuiltDeps depPkgs transDeps) desc bi packageSourceDir extraArgs
-    modules out = do
-    moduleFiles <- mapM (findModule ghc desc bi cIncludeDirs sourceDirs)
-                        modules
-    moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
-    cInputs <- collectCFiles desc bi pkgDir
-    let inputFiles = moduleFiles ++ moduleBootFiles ++ cInputs
-    runCommand out
-        $ message ("Building " ++ display (package desc))
-        <> ghcProg ghc (args
-                        ++ map relPath moduleFiles
-                        ++ map (relPath . pkgDir) (cSources bi))
-        <> inputList inputFiles
-        <> inputs (transitiveDBs transDeps)
-        <> inputs (transitiveLibFiles transDeps)
+    -> Artifact
+    -> [String]
+    -> [Artifact]
+    -> Command
+ghcCommand ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir
+    extraArgs ghcInputs
+        = ghcProg ghc (args ++ map relPath ghcInputs)
+            <> inputs (transitiveDBs transDeps)
+            <> inputs (transitiveLibFiles transDeps)
+            <> inputList ghcInputs
   where
     pkgDir = (packageSourceDir />)
-    cIncludeDirs = transitiveIncludeDirs transDeps
-                        <> Set.map pkgDir (Set.fromList $ ifNull ""
-                                                $ includeDirs bi)
     extensions =
         display (fromMaybe Haskell98 $ defaultLanguage bi)
             : map display (defaultExtensions bi ++ oldExtensions bi)
-    sourceDirs = map pkgDir $ ifNull "" $ hsSourceDirs bi
     args =
-        [ "-ddump-to-file"
+        -- Rely on GHC for module ordering and hs-boot files:
+        [ "--make"
         , "-v0"
         , "-dynamic"
         , "-i"
         ]
-        ++
         -- Necessary for boot files:
-        ["-i" ++ relPath d | d <- sourceDirs]
+        ++ map (("-i" ++) . relPath) (sourceDirArtifacts packageSourceDir bi)
         ++
         -- TODO: allow static linking
         [ "-dynamic"
@@ -268,6 +265,9 @@ runGhc ghc (BuiltDeps depPkgs transDeps) desc bi packageSourceDir extraArgs
         -- TODO: linker options too?
         ++ extraArgs
 
+sourceDirArtifacts :: Artifact -> BuildInfo -> [Artifact]
+sourceDirArtifacts packageSourceDir bi
+    = map (packageSourceDir />) $ ifNull "" $ hsSourceDirs bi
 
 dynExt :: String
 dynExt = case buildOS of
@@ -378,12 +378,12 @@ findBootFile hs = do
     bootExists <- doesArtifactExist hsBoot
     return $ guard bootExists >> return hsBoot
 
-collectCFiles :: PackageDescription -> BuildInfo -> (FilePath -> Artifact) -> Action [Artifact]
-collectCFiles desc bi pkgDir = do
+collectCIncludes :: PackageDescription -> BuildInfo -> (FilePath -> Artifact) -> Action [Artifact]
+collectCIncludes desc bi pkgDir = do
     includeInputs <- findIncludeInputs pkgDir bi
     extras <- fmap concat $ mapM (\f -> matchArtifactGlob (pkgDir "") f)
                             $ extraSrcFiles desc
-    return $ includeInputs ++ map pkgDir (cSources bi) ++ extras
+    return $ includeInputs ++ extras
 
 findIncludeInputs :: (FilePath -> Artifact) -> BuildInfo -> Action [Artifact]
 findIncludeInputs pkgDir bi = filterM doesArtifactExist candidates
