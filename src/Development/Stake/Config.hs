@@ -28,8 +28,8 @@ instance NFData StackYaml
 instance FromJSON StackYaml where
     parseJSON = withObject "StackYaml" $ \o -> do
         r <- o .: "resolver"
-        pkgs <- o .: "packages"
-        ed <- o .: "extra-deps"
+        pkgs <- o .:? "packages"
+        ed <- o .:? "extra-deps"
         return StackYaml
             { resolver = r
             , packages = fromMaybe [] pkgs
