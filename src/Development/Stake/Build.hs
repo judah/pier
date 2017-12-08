@@ -148,25 +148,16 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     let oDir = pkgPrefixDir </> "o"
     let libName = "HS" ++ display (packageName $ package desc)
     let libFile = pkgPrefixDir </> "lib" ++ libName ++ "-ghc"
-                                ++ display (ghcVersion $ plan conf) <.> dynExt
-    -- TODO: Actual LTS version ghc.
+                                ++ display (ghcVersion $ plan conf) <.> "a"
+    let dynLibFile = pkgPrefixDir </> "lib" ++ libName
+                        ++ "-ghc" ++ display (ghcVersion $ plan conf) <.> dynExt
     let shouldBuildLib = not $ null $ exposedModules lib
-    let compileOut = liftA2 (\linked hi -> (Set.fromList [linked,hi]))
-                        (output libFile)
-                        (output hiDir)
-    let args =
-            [ "-this-unit-id", display $ package desc
-            , "-hidir", hiDir
-            , "-odir", oDir
-            , "-shared"
-            , "-fPIC"
-            , "-o", libFile
-            ]
     let pkgDir = (packageSourceDir />)
     let modules = otherModules lbi ++ exposedModules lib
     let cIncludeDirs = transitiveIncludeDirs transDeps
                         <> Set.map pkgDir (Set.fromList $ ifNull ""
                                                 $ includeDirs lbi)
+    let cFiles = map pkgDir $ cSources lbi
     moduleFiles <- mapM (findModule ghc desc lbi cIncludeDirs
                             $ sourceDirArtifacts packageSourceDir lbi)
                         modules
@@ -174,14 +165,38 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     cIncludes <- collectCIncludes desc lbi pkgDir
     (maybeLib, libFiles)  <- if not shouldBuildLib
             then return (Nothing, Set.empty)
-            else fmap (\libFiles -> (Just (libName, lib), libFiles))
-                    $ runCommand compileOut
+            else do
+                (hiDir', oDir') <- runCommand
+                    (liftA2 (,) (output hiDir) (output oDir))
                     $ message ("Building " ++ display (package desc))
                     <> inputList (moduleBootFiles ++ cIncludes)
-                    <> ghcCommand (configGhc conf) deps lbi packageSourceDir
-                            args
-                            (moduleFiles ++ map pkgDir (cSources lbi))
-
+                    <> ghcCommand ghc deps lbi packageSourceDir
+                            [ "-this-unit-id", display $ package desc
+                            , "-hidir", hiDir
+                            , "-odir", oDir
+                            , "-dynamic-too"
+                            ]
+                            (moduleFiles ++ cFiles)
+                let objs = map (\m -> oDir' /> (toFilePath m <.> "o")) modules
+                                -- TODO: this is pretty janky...
+                                ++ map (\f -> replaceArtifactExtension
+                                                    (oDir'/> relPath f) "o")
+                                        cFiles
+                let dynModuleObjs = map (\m -> oDir' /> (toFilePath m <.> "dyn_o")) modules
+                libArchive <- runCommand (output libFile)
+                                    $ inputList objs
+                                    <> message ("Linking static lib for "
+                                                    ++ display (package desc))
+                                    <> prog "ar" ([arParams, libFile]
+                                                    ++ map relPath objs)
+                dynLib <- runCommand (output dynLibFile)
+                            $ inputList cIncludes
+                            <> message ("Linking dynamic lib for "
+                                            ++ display (package desc))
+                            <> ghcCommand ghc deps lbi packageSourceDir
+                                ["-shared", "-dynamic", "-o", dynLibFile]
+                                (dynModuleObjs ++ cFiles)
+                return (Just (libName, lib), Set.fromList [libArchive, dynLib, hiDir'])
     pkgDb <- registerPackage ghc pkgPrefixDir (package desc) lbi maybeLib
                 deps libFiles
     return $ BuiltPackage (package desc)
@@ -191,6 +206,11 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                 -- TODO:
                 , transitiveIncludeDirs = Set.empty
                 }
+
+arParams :: String
+arParams = case buildOS of
+                OSX -> "-cqv"
+                _ -> "-rcs"
 
 ghcCommand
     :: InstalledGhc
@@ -215,17 +235,11 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir
         -- Rely on GHC for module ordering and hs-boot files:
         [ "--make"
         , "-v0"
-        , "-dynamic"
+        , "-fPIC"
         , "-i"
         ]
         -- Necessary for boot files:
         ++ map (("-i" ++) . relPath) (sourceDirArtifacts packageSourceDir bi)
-        ++
-        -- TODO: allow static linking
-        [ "-dynamic"
-        , "-hisuf", "dyn_hi"
-        , "-osuf", "dyn_o"
-        ]
         ++
         concat (map (\p -> ["-package-db", relPath p])
                 $ Set.toList $ transitiveDBs transDeps)

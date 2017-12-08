@@ -3,5 +3,8 @@ resolver: lts-9.6
 packages:
   - '.'
 
+ghc-options:
+  "$locals": -Wall -Werror
+
 extra-deps:
   - shake-0.16
