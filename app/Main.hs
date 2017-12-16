@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Main (main) where
 
 import Control.Exception (throw)
@@ -25,8 +24,8 @@ verbosity = fmap mk $ many $ flag' 'V' ( long "verbose"
     mk vs = ['-':vs]
 
 parallelism :: Parser ShakeFlag
-parallelism = fmap ("--jobs=" ++) $ strOption ( long "jobs"
-                                            <> short 'j')
+parallelism = ("--jobs=" ++) <$> strOption ( long "jobs"
+                                             <> short 'j')
 
 shakeArg :: Parser ShakeFlag
 shakeArg = strOption (long "shake-arg" <> metavar "SHAKEARG")

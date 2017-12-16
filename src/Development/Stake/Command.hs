@@ -1,10 +1,7 @@
 -- | A generic approach to building and caching outputs hermetically.
 --
 -- Output format: .stake/artifact/HASH/path/to/files
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 module Development.Stake.Command
     ( commandRules
@@ -37,7 +34,7 @@ module Development.Stake.Command
     ) where
 
 import Crypto.Hash.SHA256
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Base64
@@ -279,13 +276,13 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
     -- below.  This could happen if the action stops before Shake registers it as
     -- complete, due to either a synchronous or asynchronous exception.
     exists <- liftIO $ Directory.doesDirectoryExist outDir
-    when (not exists) $ do
+    unless exists $ do
         tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
                                                         (hashString h)
         let inps = dedupArtifacts inps'
         checkAllDistinctPaths inps
         liftIO $ mapM_ (linkArtifact tmp) inps
-        mapM_ (createParentIfMissing . (tmp </>)) $ outs
+        mapM_ (createParentIfMissing . (tmp </>)) outs
         let unStdout (Stdout out) = out
         -- TODO: more flexibility around the env vars
         -- Also: limit valid parameters for the *prog* binary (rather than taking it
@@ -304,7 +301,7 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
         liftIO $ B.writeFile (tmp </> stdoutPath) out
         liftIO $ forM_ outs $ \f -> do
                         exist <- Directory.doesPathExist (tmp </> f)
-                        when (not exist) $
+                        unless exist $
                             error $ "runCommand: missing output "
                                     ++ show f
         liftIO $ withSystemTempDirectory (hashString h) $ \tempOutDir -> do
@@ -325,7 +322,8 @@ defaultEnv = [("PATH", "/usr/bin:/bin")]
 
 checkAllDistinctPaths :: [Artifact] -> Action ()
 checkAllDistinctPaths as =
-    case Map.keys $ Map.filter (> 1) $ Map.fromListWith (+) $ map (,1 :: Integer) $ map relPath as of
+    case Map.keys . Map.filter (> 1) . Map.fromListWith (+)
+            . map (\a -> (relPath a, 1 :: Integer)) $ as of
         [] -> return ()
         -- TODO: nicer error, telling where they came from:
         fs -> error $ "Artifacts generated from more than one command: " ++ show fs
@@ -366,7 +364,7 @@ forFileRecursive_ act f = do
         then act f
         else do
             fs <- filter (not . specialFile) <$> Directory.getDirectoryContents f
-            mapM_ (forFileRecursive_ act) $ map (f </>) fs
+            mapM_ (forFileRecursive_ act . (f </>)) fs
             act f
   where
     specialFile "." = True

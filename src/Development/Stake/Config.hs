@@ -60,9 +60,9 @@ askConfig yaml = do
         { plan = p
         , configGhc = ghc
         , localPackages = HM.fromList pkgDescs
-        , configExtraDeps = HM.fromList $ [ (packageName pkg, packageVersion pkg)
-                                          | pkg <- extraDeps yaml
-                                          ]
+        , configExtraDeps = HM.fromList [ (packageName pkg, packageVersion pkg)
+                                        | pkg <- extraDeps yaml
+                                        ]
         }
 
 data Resolved

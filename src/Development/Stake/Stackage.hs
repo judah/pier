@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 module Development.Stake.Stackage
     ( buildPlanRules
     , askBuildPlan
@@ -272,7 +271,7 @@ makeRelativeGlobalDb tempDir ghc = do
                         $ ghcPkgProg ghc ["describe", pkg]
             let desc' =
                     T.unpack
-                    . T.replace (T.pack tempDir) (T.pack $ "${pkgroot}/../ghc-install")
+                    . T.replace (T.pack tempDir) (T.pack "${pkgroot}/../ghc-install")
                     . T.pack
                     $ desc
             writeArtifact (pkg ++ ".conf") desc'

@@ -21,11 +21,11 @@ jobs:
             curl -L https://github.com/commercialhaskell/stack/releases/download/v1.6.1/stack-1.6.1-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
 
       # Build with `stack`
-      - run: stack --no-terminal install happy weeder alex
+      - run: stack --no-terminal install happy weeder alex hlint
       - run: stack --no-terminal build --only-dependencies --fast --no-terminal
       - run: stack --no-terminal build --pedantic --fast --no-terminal
 
-      # Check for unused or redundant dependencies/exports
+      - run: hlint .
       - run: weeder . --build
 
       # Run stake on some sample packages

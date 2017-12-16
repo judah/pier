@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Development.Stake.Package
     ( getPackageSourceDir
     , configurePackage
@@ -93,7 +92,7 @@ flattenToDefaultFlags plan gdesc = let
                         ]
     in desc0 {
         -- TODO: Nothing vs Nothing?
-        library = fmap (resolve plan flags) $ condLibrary gdesc
+        library = resolve plan flags <$> condLibrary gdesc
        }
 
 resolve

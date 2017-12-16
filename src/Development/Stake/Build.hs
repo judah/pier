@@ -36,8 +36,7 @@ import Data.Set (Set)
 import Language.Haskell.Extension
 
 buildPackageRules :: Rules ()
-buildPackageRules = do
-    addPersistent buildPackage
+buildPackageRules = addPersistent buildPackage
 
 data BuiltPackageR = BuiltPackageR StackYaml PackageName
     deriving (Show,Typeable,Eq,Generic)
@@ -67,7 +66,7 @@ data BuiltPackage = BuiltPackage
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
 askBuiltPackages :: StackYaml -> [PackageName] -> Action [BuiltPackage]
-askBuiltPackages yaml pkgs = do
+askBuiltPackages yaml pkgs =
     askPersistents $ map (BuiltPackageR yaml) pkgs
 
 data BuiltDeps = BuiltDeps [PackageIdentifier] TransitiveDeps
@@ -241,11 +240,11 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir
         -- Necessary for boot files:
         ++ map (("-i" ++) . relPath) (sourceDirArtifacts packageSourceDir bi)
         ++
-        concat (map (\p -> ["-package-db", relPath p])
-                $ Set.toList $ transitiveDBs transDeps)
+        concatMap (\p -> ["-package-db", relPath p])
+                (Set.toList $ transitiveDBs transDeps)
         ++
         concat [["-package", display d] | d <- depPkgs]
-        ++ map ("-I"++) (map (relPath . pkgDir) $ includeDirs bi)
+        ++ map (("-I" ++) . relPath . pkgDir) (includeDirs bi)
         ++ map ("-X" ++) extensions
         ++ concat [opts | (GHC,opts) <- options bi]
         ++ map ("-optP" ++) (cppOptions bi)
@@ -419,7 +418,7 @@ findBootFile hs = do
 collectCIncludes :: PackageDescription -> BuildInfo -> (FilePath -> Artifact) -> Action [Artifact]
 collectCIncludes desc bi pkgDir = do
     includeInputs <- findIncludeInputs pkgDir bi
-    extras <- fmap concat $ mapM (\f -> matchArtifactGlob (pkgDir "") f)
+    extras <- fmap concat $ mapM (matchArtifactGlob (pkgDir ""))
                             $ extraSrcFiles desc
     return $ includeInputs ++ extras
 

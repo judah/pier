@@ -4,7 +4,7 @@ module Development.Stake.Download
     , downloadRules
     ) where
 
-import Control.Monad (when)
+import Control.Monad (unless)
 import qualified Data.ByteString.Lazy as L
 import Development.Shake
 import Development.Shake.Classes
@@ -43,11 +43,11 @@ downloadRules :: Rules ()
 downloadRules = addPersistent $ \d -> do
     -- Download to a shared location under $HOME/.stake, if it doesn't
     -- already exist (atomically); then make an artifact that symlinks to it.
-    downloadsDir <- liftIO $ stakeDownloadsDir
+    downloadsDir <- liftIO stakeDownloadsDir
     let result = downloadsDir </> downloadFilePrefix d
                                         </> downloadName d
     exists <- liftIO $ Directory.doesFileExist result
-    when (not exists) $ do
+    unless exists $ do
         putNormal $ "Downloading " ++ downloadName d
         liftIO $ withSystemTempFile (takeFileName $ downloadName d)
                     $ \tmp h -> do

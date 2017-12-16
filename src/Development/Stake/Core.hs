@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 module Development.Stake.Core
     ( -- * Build directory
       runStake
