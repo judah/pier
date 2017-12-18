@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Development.Stake.Config where
 
+import Control.Exception (throw)
+import Control.Monad (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (fromMaybe)
 import Data.Yaml
@@ -10,10 +12,27 @@ import Development.Shake
 import Development.Shake.Classes
 import Development.Stake.Command
 import Development.Stake.Package
+import Development.Stake.Persistent
 import Distribution.Package
 import Distribution.Version
 import GHC.Generics hiding (packageName)
 
+data StackYamlPath = StackYamlPath
+    deriving (Show, Eq, Typeable, Generic)
+instance Hashable StackYamlPath
+instance Binary StackYamlPath
+instance NFData StackYamlPath
+
+type instance RuleResult StackYamlPath = FilePath
+
+configRules :: FilePath -> Rules ()
+configRules f = do
+    void $ addOracle $ \StackYamlPath -> return f
+    void $ addPersistent $ \StackYamlQ -> do
+        path <- askOracle StackYamlPath
+        need [path]
+        yamlE <- liftIO $ decodeFileEither path
+        either (liftIO . throw) return yamlE
 
 -- TODO: rename; maybe ConfigSpec and ConfigEnv?  Or Config and Env?
 data StackYaml = StackYaml
@@ -36,6 +55,15 @@ instance FromJSON StackYaml where
             , extraDeps = fromMaybe [] ed
             }
 
+data StackYamlQ = StackYamlQ
+    deriving (Show, Eq, Typeable, Generic)
+instance Hashable StackYamlQ
+instance Binary StackYamlQ
+instance NFData StackYamlQ
+
+type instance RuleResult StackYamlQ = StackYaml
+
+
 data Config = Config
     { plan :: BuildPlan
     , configExtraDeps :: HM.HashMap PackageName Version
@@ -44,8 +72,9 @@ data Config = Config
     } deriving Show
 
 -- TODO: cache?
-askConfig :: StackYaml -> Action Config
-askConfig yaml = do
+askConfig :: Action Config
+askConfig = do
+    yaml <- askPersistent StackYamlQ
     p <- askBuildPlan (resolver yaml)
     ghc <- askInstalledGhc (ghcVersion p)
     -- TODO: don't parse local package defs twice.

@@ -12,7 +12,6 @@ dependencies:
   - base
   - Cabal
   - shake
-  - yaml
 
 default-extensions:
   - BangPatterns
@@ -44,6 +43,7 @@ library:
     - unix
     - unordered-containers
     - wreq
+    - yaml
 
 executables:
   stake:

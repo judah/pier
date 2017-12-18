@@ -1,10 +1,9 @@
 module Main (main) where
 
-import Control.Exception (throw)
 import Data.Monoid ((<>))
-import qualified Data.Yaml as Yaml
 import Development.Shake hiding (command)
 import Development.Stake.Build
+import Development.Stake.Config
 import Development.Stake.Core
 import Development.Stake.Command
 import Development.Stake.Download
@@ -13,7 +12,7 @@ import Distribution.Package
 import Options.Applicative hiding (action)
 import System.Environment
 
-data CommandOpt = Clean | CleanAll | Build FilePath [PackageName]
+data CommandOpt = Clean | CleanAll | Build [PackageName]
 type ShakeFlag = String
 
 verbosity :: Parser [ShakeFlag]
@@ -44,10 +43,8 @@ cleanAllCommand :: Parser CommandOpt
 cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser CommandOpt
-buildCommand = Build <$> stackYamlFlag <*> packageNames
+buildCommand = Build <$> packageNames
   where
-    stackYamlFlag = strOption (long "stack-yaml" <> metavar "YAML"
-                                <> value "stack.yaml")
     packageNames = (fmap . fmap) PackageName $ many
                                              $ strArgument ( metavar "PACKAGENAME" )
 
@@ -57,27 +54,28 @@ stakeCmd = subparser $
     command "clean-all" (info cleanAllCommand (progDesc "Clean project & dependencies")) <>
     command "build" (info buildCommand (progDesc "Build Project"))
 
-opts :: ParserInfo (CommandOpt, [ShakeFlag])
+opts :: ParserInfo (FilePath, CommandOpt, [ShakeFlag])
 opts = info args mempty
   where
-    args = (,) <$> stakeCmd <*> shakeFlags
+    args = (,,) <$> stackYamlFlag <*> stakeCmd <*> shakeFlags
+
+    stackYamlFlag = strOption (long "stack-yaml" <> metavar "YAML"
+                                <> value "stack.yaml")
 
 runWithOptions :: CommandOpt -> Rules ()
 runWithOptions Clean = cleanBuild
 runWithOptions CleanAll =  liftIO unfreezeArtifacts >> cleanAll
-runWithOptions (Build yamlPath pkgs)
-    = action $ do
-        yamlE <- liftIO $ Yaml.decodeFileEither yamlPath
-        yaml <- either (liftIO . throw) return yamlE
-        askBuiltPackages yaml pkgs
+runWithOptions (Build pkgs)
+    = action $ askBuiltPackages pkgs
 
 main :: IO ()
 main = do
-    (cmdOpt, flags) <- execParser opts
+    (stackYamlPath, cmdOpt, flags) <- execParser opts
     withArgs flags $ runStake $ do
         buildPlanRules
         buildPackageRules
         commandRules
         downloadRules
         installGhcRules
+        configRules stackYamlPath
         runWithOptions cmdOpt

@@ -38,7 +38,7 @@ import Language.Haskell.Extension
 buildPackageRules :: Rules ()
 buildPackageRules = addPersistent buildPackage
 
-data BuiltPackageR = BuiltPackageR StackYaml PackageName
+newtype BuiltPackageR = BuiltPackageR PackageName
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable BuiltPackageR
 instance Binary BuiltPackageR
@@ -65,33 +65,32 @@ data BuiltPackage = BuiltPackage
     }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
-askBuiltPackages :: StackYaml -> [PackageName] -> Action [BuiltPackage]
-askBuiltPackages yaml pkgs =
-    askPersistents $ map (BuiltPackageR yaml) pkgs
+askBuiltPackages :: [PackageName] -> Action [BuiltPackage]
+askBuiltPackages pkgs =
+    askPersistents $ map BuiltPackageR pkgs
 
 data BuiltDeps = BuiltDeps [PackageIdentifier] TransitiveDeps
 
 askBuiltDeps
-    :: StackYaml
-    -> [PackageName]
+    :: [PackageName]
     -> Action BuiltDeps
-askBuiltDeps stackYaml pkgs = do
-    deps <- askBuiltPackages stackYaml pkgs
+askBuiltDeps pkgs = do
+    deps <- askBuiltPackages pkgs
     return $ BuiltDeps (dedup $ map builtPackageId deps)
                   (foldMap builtPackageTrans deps)
   where
     dedup = Set.toList . Set.fromList
 
 buildPackage :: BuiltPackageR -> Action BuiltPackage
-buildPackage (BuiltPackageR stackYaml pkg) = do
+buildPackage (BuiltPackageR pkg) = do
     rerunIfCleaned
-    conf <- askConfig stackYaml
+    conf <- askConfig
     let r = resolvePackage conf pkg
-    buildResolved stackYaml conf r
+    buildResolved conf r
 
 buildResolved
-    :: StackYaml -> Config -> Resolved -> Action BuiltPackage
-buildResolved _ conf (Builtin p) = do
+    :: Config -> Resolved -> Action BuiltPackage
+buildResolved conf (Builtin p) = do
     let ghc = configGhc conf
     result <- runCommandStdout
                 $ ghcPkgProg ghc
@@ -109,27 +108,27 @@ buildResolved _ conf (Builtin p) = do
                                     $ map (parseGlobalPackagePath ghc)
                                     $ IP.includeDirs info
                         }
-buildResolved stackYaml conf (Hackage p) =
-    getPackageSourceDir p >>= buildPackageInDir stackYaml conf
+buildResolved conf (Hackage p) =
+    getPackageSourceDir p >>= buildPackageInDir conf
 
 -- TODO: don't copy everything if the local package is configured?
-buildResolved stackYaml conf (Local dir) =
-    buildPackageInDir stackYaml conf dir
+buildResolved conf (Local dir) =
+    buildPackageInDir conf dir
 
-buildPackageInDir :: StackYaml -> Config -> Artifact -> Action BuiltPackage
-buildPackageInDir stackYaml conf packageSourceDir = do
+buildPackageInDir :: Config -> Artifact -> Action BuiltPackage
+buildPackageInDir conf packageSourceDir = do
     (desc, dir') <- configurePackage (plan conf) packageSourceDir
-    buildFromDesc stackYaml conf dir' desc
+    buildFromDesc conf dir' desc
 
 buildFromDesc
-    :: StackYaml -> Config -> Artifact -> PackageDescription -> Action BuiltPackage
-buildFromDesc stackYaml conf packageSourceDir desc
+    :: Config -> Artifact -> PackageDescription -> Action BuiltPackage
+buildFromDesc conf packageSourceDir desc
     | Just lib <- library desc
     , let lbi = libBuildInfo lib
     , buildable lbi = do
             let depNames = [n | Dependency n _ <- targetBuildDepends
                                                 lbi]
-            deps <- askBuiltDeps stackYaml depNames
+            deps <- askBuiltDeps depNames
             buildLibrary conf deps packageSourceDir desc lib
     | otherwise = error "buildFromDesc: no library"
 
