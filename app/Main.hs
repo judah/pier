@@ -1,5 +1,7 @@
 module Main (main) where
 
+import Control.Monad (void)
+import Data.List.Split (splitOn)
 import Data.Monoid ((<>))
 import Development.Shake hiding (command)
 import Development.Stake.Build
@@ -9,10 +11,11 @@ import Development.Stake.Command
 import Development.Stake.Download
 import Development.Stake.Stackage
 import Distribution.Package
+import Distribution.Text (simpleParse)
 import Options.Applicative hiding (action)
 import System.Environment
 
-data CommandOpt = Clean | CleanAll | Build [PackageName]
+data CommandOpt = Clean | CleanAll | Build [(PackageName, Target)]
 type ShakeFlag = String
 
 verbosity :: Parser [ShakeFlag]
@@ -43,10 +46,7 @@ cleanAllCommand :: Parser CommandOpt
 cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser CommandOpt
-buildCommand = Build <$> packageNames
-  where
-    packageNames = (fmap . fmap) PackageName $ many
-                                             $ strArgument ( metavar "PACKAGENAME" )
+buildCommand = Build <$> some (argument (eitherReader parseTarget) (metavar "TARGET"))
 
 stakeCmd :: Parser CommandOpt
 stakeCmd = subparser $
@@ -65,8 +65,7 @@ opts = info args mempty
 runWithOptions :: CommandOpt -> Rules ()
 runWithOptions Clean = cleanBuild
 runWithOptions CleanAll =  liftIO unfreezeArtifacts >> cleanAll
-runWithOptions (Build pkgs)
-    = action $ askBuiltPackages pkgs
+runWithOptions (Build targets) = action $ forP targets (uncurry buildTarget)
 
 main :: IO ()
 main = do
@@ -79,3 +78,28 @@ main = do
         installGhcRules
         configRules stackYamlPath
         runWithOptions cmdOpt
+
+-- TODO: move into Build.hs
+data Target
+    = TargetAll
+    | TargetLib
+    | TargetAllExes
+    | TargetExe String
+
+parseTarget :: String -> Either String (PackageName, Target)
+parseTarget s = case splitOn ":" s of
+    [n] -> (, TargetAll) <$> parsePackageName n
+    [n, "lib"] -> (, TargetLib) <$> parsePackageName n
+    [n, "exe"] -> (, TargetAllExes) <$> parsePackageName n
+    [n, "exe", e] -> (, TargetExe e) <$> parsePackageName n
+    _ -> Left $ "Error parsing target " ++ show s
+  where
+    parsePackageName n = case simpleParse n of
+        Just p -> return p
+        Nothing -> Left $ "Error parsing package name " ++ show n
+
+buildTarget :: PackageName -> Target -> Action ()
+buildTarget n TargetAll = void $ askMaybeBuiltLibrary n >> buildExecutables n
+buildTarget n TargetLib = void $ askBuiltLibrary n
+buildTarget n TargetAllExes = void $ buildExecutables n
+buildTarget n (TargetExe e) = void $ buildExecutableNamed n e

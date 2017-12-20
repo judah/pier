@@ -20,6 +20,7 @@ default-extensions:
   - DeriveGeneric
   - ScopedTypeVariables
   - StandaloneDeriving
+  - TupleSections
   - TypeFamilies
   - TypeSynonymInstances
 
@@ -52,4 +53,5 @@ executables:
     ghc-options: -threaded -with-rtsopts=-I0
     dependencies:
       - optparse-applicative
+      - split
       - stake

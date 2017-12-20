@@ -2,7 +2,10 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Development.Stake.Build
     ( buildPackageRules
-    , askBuiltPackages
+    , askBuiltLibrary
+    , askMaybeBuiltLibrary
+    , buildExecutables
+    , buildExecutableNamed
     )
     where
 
@@ -10,13 +13,14 @@ import Control.Applicative (liftA2, (<|>))
 import Control.Monad (filterM, guard, msum)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
-import Data.List (nub)
+import Data.List (find, intercalate, nub)
+import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Semigroup
 import GHC.Generics hiding (packageName)
 import Development.Shake
 import Development.Shake.Classes
-import Development.Shake.FilePath
+import Development.Shake.FilePath hiding (exe)
 import Development.Stake.Command
 import Development.Stake.Config
 import Development.Stake.Core
@@ -36,14 +40,14 @@ import Data.Set (Set)
 import Language.Haskell.Extension
 
 buildPackageRules :: Rules ()
-buildPackageRules = addPersistent buildPackage
+buildPackageRules = addPersistent buildLibrary
 
-newtype BuiltPackageR = BuiltPackageR PackageName
+newtype BuiltLibraryR = BuiltLibraryR PackageName
     deriving (Show,Typeable,Eq,Generic)
-instance Hashable BuiltPackageR
-instance Binary BuiltPackageR
-instance NFData BuiltPackageR
-type instance RuleResult BuiltPackageR = BuiltPackage
+instance Hashable BuiltLibraryR
+instance Binary BuiltLibraryR
+instance NFData BuiltLibraryR
+type instance RuleResult BuiltLibraryR = Maybe BuiltLibrary
 
 data TransitiveDeps = TransitiveDeps
     { transitiveDBs :: Set Artifact
@@ -59,15 +63,25 @@ instance Monoid TransitiveDeps where
 
 
 -- ghc --package-db .stake/...text-1234.pkg/db --package text-1234
-data BuiltPackage = BuiltPackage
+data BuiltLibrary = BuiltLibrary
     { builtPackageId :: PackageIdentifier
     , builtPackageTrans :: TransitiveDeps
     }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
-askBuiltPackages :: [PackageName] -> Action [BuiltPackage]
-askBuiltPackages pkgs =
-    askPersistents $ map BuiltPackageR pkgs
+askBuiltLibraries :: [PackageName] -> Action [BuiltLibrary]
+askBuiltLibraries = flip forP askBuiltLibrary
+
+askMaybeBuiltLibrary :: PackageName -> Action (Maybe BuiltLibrary)
+askMaybeBuiltLibrary pkg = askPersistent (BuiltLibraryR pkg)
+
+askBuiltLibrary :: PackageName -> Action BuiltLibrary
+askBuiltLibrary pkg = askMaybeBuiltLibrary pkg >>= helper
+  where
+    helper Nothing = error $ "buildFromDesc: " ++ display pkg
+                                ++ " does not have a buildable library"
+    helper (Just lib) = return lib
+
 
 data BuiltDeps = BuiltDeps [PackageIdentifier] TransitiveDeps
 
@@ -75,23 +89,43 @@ askBuiltDeps
     :: [PackageName]
     -> Action BuiltDeps
 askBuiltDeps pkgs = do
-    deps <- askBuiltPackages pkgs
+    deps <- askBuiltLibraries pkgs
     return $ BuiltDeps (dedup $ map builtPackageId deps)
                   (foldMap builtPackageTrans deps)
   where
     dedup = Set.toList . Set.fromList
 
-buildPackage :: BuiltPackageR -> Action BuiltPackage
-buildPackage (BuiltPackageR pkg) = do
-    rerunIfCleaned
+-- TODO: merge with Resolved
+-- TODO: don't copy everything if configuring a local package?  Or at least
+-- treat deps less coarsely?
+getConfiguredPackage
+    :: PackageName -> Action (Either PackageId (PackageDescription, Artifact))
+getConfiguredPackage p = do
     conf <- askConfig
-    let r = resolvePackage conf pkg
-    buildResolved conf r
+    case resolvePackage conf p of
+        Builtin pid -> return $ Left pid
+        Hackage pid -> do
+            dir <- getPackageSourceDir pid
+            Right <$> configurePackage (plan conf) dir
+        Local dir -> Right <$> configurePackage (plan conf) dir
 
-buildResolved
-    :: Config -> Resolved -> Action BuiltPackage
-buildResolved conf (Builtin p) = do
-    let ghc = configGhc conf
+
+buildLibrary :: BuiltLibraryR -> Action (Maybe BuiltLibrary)
+buildLibrary (BuiltLibraryR pkg) = do
+    rerunIfCleaned
+    getConfiguredPackage pkg >>= \case
+        Left p -> Just <$> getBuiltinLib p
+        Right (desc, dir)
+            | Just lib <- library desc
+            , let bi = libBuildInfo lib
+            , buildable bi -> Just <$> do
+                deps <- askBuiltDeps [n | Dependency n _ <- targetBuildDepends bi]
+                buildLibraryFromDesc deps dir desc lib
+            | otherwise -> return Nothing
+
+getBuiltinLib :: PackageId -> Action BuiltLibrary
+getBuiltinLib p = do
+    ghc <- configGhc <$> askConfig
     result <- runCommandStdout
                 $ ghcPkgProg ghc
                     ["describe" , display p]
@@ -99,7 +133,7 @@ buildResolved conf (Builtin p) = do
     info <- return $! case IP.parseInstalledPackageInfo result of
         IP.ParseFailed err -> error (show err)
         IP.ParseOk _ info -> info
-    return $ BuiltPackage p
+    return $ BuiltLibrary p
                 TransitiveDeps
                     { transitiveDBs = Set.empty
                     , transitiveLibFiles = ghcArtifacts ghc
@@ -108,45 +142,22 @@ buildResolved conf (Builtin p) = do
                                     $ map (parseGlobalPackagePath ghc)
                                     $ IP.includeDirs info
                         }
-buildResolved conf (Hackage p) =
-    getPackageSourceDir p >>= buildPackageInDir conf
 
--- TODO: don't copy everything if the local package is configured?
-buildResolved conf (Local dir) =
-    buildPackageInDir conf dir
-
-buildPackageInDir :: Config -> Artifact -> Action BuiltPackage
-buildPackageInDir conf packageSourceDir = do
-    (desc, dir') <- configurePackage (plan conf) packageSourceDir
-    buildFromDesc conf dir' desc
-
-buildFromDesc
-    :: Config -> Artifact -> PackageDescription -> Action BuiltPackage
-buildFromDesc conf packageSourceDir desc
-    | Just lib <- library desc
-    , let lbi = libBuildInfo lib
-    , buildable lbi = do
-            let depNames = [n | Dependency n _ <- targetBuildDepends
-                                                lbi]
-            deps <- askBuiltDeps depNames
-            buildLibrary conf deps packageSourceDir desc lib
-    | otherwise = error "buildFromDesc: no library"
-
-buildLibrary
-    :: Config
-    -> BuiltDeps
+buildLibraryFromDesc
+    :: BuiltDeps
     -> Artifact
-    -> PackageDescription -> Library
-    -> Action BuiltPackage
-buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
+    -> PackageDescription
+    -> Library
+    -> Action BuiltLibrary
+buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
+    conf <- askConfig
     let ghc = configGhc conf
-    let pkgPrefixDir = display (packageName $ package desc)
+    let pkgPrefixDir = display (packageName $ package desc) </> "lib"
     let lbi = libBuildInfo lib
     let hiDir = pkgPrefixDir </> "hi"
     let oDir = pkgPrefixDir </> "o"
     let libName = "HS" ++ display (packageName $ package desc)
-    let libFile = pkgPrefixDir </> "lib" ++ libName ++ "-ghc"
-                                ++ display (ghcVersion $ plan conf) <.> "a"
+    let libFile = pkgPrefixDir </> "lib" ++ libName <.> "a"
     let dynLibFile = pkgPrefixDir </> "lib" ++ libName
                         ++ "-ghc" ++ display (ghcVersion $ plan conf) <.> dynExt
     let shouldBuildLib = not $ null $ exposedModules lib
@@ -197,7 +208,7 @@ buildLibrary conf deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                 return (Just (libName, lib), Set.fromList [libArchive, dynLib, hiDir'])
     pkgDb <- registerPackage ghc pkgPrefixDir (package desc) lbi maybeLib
                 deps libFiles
-    return $ BuiltPackage (package desc)
+    return $ BuiltLibrary (package desc)
             $ transDeps <> TransitiveDeps
                 { transitiveDBs = Set.singleton pkgDb
                 , transitiveLibFiles = libFiles
@@ -209,6 +220,76 @@ arParams :: String
 arParams = case buildOS of
                 OSX -> "-cqv"
                 _ -> "-rcs"
+
+-- TODO: double-check no two executables with the same name
+
+-- TODO: figure out the whole caching story
+buildExecutables :: PackageName -> Action (Map.Map String Artifact)
+buildExecutables p = getConfiguredPackage p >>= \case
+    Left _ -> return Map.empty
+    Right (desc, dir) ->
+        fmap Map.fromList
+            . mapM (\e -> (exeName e,) <$> buildExecutable desc dir e)
+            . filter (buildable . buildInfo)
+            $ executables desc
+
+-- TODO: error if not buildable?
+buildExecutableNamed :: PackageName -> String -> Action Artifact
+buildExecutableNamed p e = getConfiguredPackage p >>= \case
+    Left pid -> error $ "Built-in package " ++ display pid
+                        ++ " has no executables"
+    Right (desc, dir)
+        | Just exe <- find ((== e) . exeName) (executables desc)
+            -> buildExecutable desc dir exe
+        | otherwise -> error $ "Package " ++ display (package desc)
+                            ++ " has no executable named " ++ e
+
+buildExecutable
+    :: PackageDescription
+    -> Artifact
+    -> Executable
+    -> Action Artifact
+buildExecutable desc packageSourceDir exe = do
+    let bi = buildInfo exe
+    deps@(BuiltDeps _ transDeps)
+        <- askBuiltDeps [n | Dependency n _ <- targetBuildDepends bi]
+    conf <- askConfig
+    let ghc = configGhc conf
+    let outputPrefix = display (packageName $ package desc)
+                        </> "exe" </> exeName exe
+    let outPath = "bin" </> exeName exe
+    let cIncludeDirs = transitiveIncludeDirs transDeps
+                        <> Set.map (packageSourceDir />)
+                                 (Set.fromList $ ifNull "" $ includeDirs bi)
+    let findM = findModule ghc desc bi cIncludeDirs
+                    $ sourceDirArtifacts packageSourceDir bi
+    otherModuleFiles <- mapM findM $ addIfMissing pathsMod $ otherModules bi
+    mainFile <- let fullPath = packageSourceDir /> modulePath exe
+                in doesArtifactExist fullPath >>= \case
+                            True -> return fullPath
+                            False -> findM $ filePathToModule $ modulePath exe
+    moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
+    -- TODO: c includes
+    runCommand (output outPath)
+        $ message ("Building " ++ display (package desc)
+                        ++ " (" ++ exeName exe ++ ")")
+        <> inputList moduleBootFiles
+        <> ghcCommand ghc deps bi packageSourceDir
+                [ "-o", outPath
+                , "-hidir", outputPrefix </> "hi"
+                , "-odir", outputPrefix </> "o"
+                ]
+                (addIfMissing mainFile otherModuleFiles)
+  where
+    pathsMod = fromString $ "Paths_" ++ display (packageName desc)
+    addIfMissing m ms
+        | m `elem` ms = ms
+        | otherwise = m : ms
+
+
+-- TODO: issue if this doesn't preserve ".lhs" vs ".hs", for example?
+filePathToModule :: FilePath -> ModuleName
+filePathToModule = fromString . intercalate "." . splitDirectories . dropExtension
 
 ghcCommand
     :: InstalledGhc
@@ -364,7 +445,8 @@ search ghc bi cIncludeDirs m srcDir
       genHappy "y" <|>
       genHappy "ly" <|>
       genAlex "x" <|>
-      existing
+      existing "lhs" <|>
+      existing "hs"
   where
     genHappy ext = do
         let yFile = srcDir /> (toFilePath m <.> ext)
@@ -400,7 +482,7 @@ search ghc bi cIncludeDirs m srcDir
                      ["-o", relOutput, relPath xFile]
                <> input xFile
 
-    existing = let f = srcDir /> (toFilePath m <.> "hs")
+    existing ext = let f = srcDir /> (toFilePath m <.> ext)
                  in exists f >> return f
 
 ifNull :: a -> [a] -> [a]

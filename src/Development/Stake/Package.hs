@@ -90,10 +90,12 @@ flattenToDefaultFlags plan gdesc = let
     flags = HM.fromList [(flagName f, flagDefault f)
                         | f <- genPackageFlags gdesc
                         ]
-    in desc0 {
+    in desc0
         -- TODO: Nothing vs Nothing?
-        library = resolve plan flags <$> condLibrary gdesc
-       }
+        { library = resolve plan flags <$> condLibrary gdesc
+        , executables = map (\(n, e) -> (resolve plan flags e) { exeName = n })
+                            $ condExecutables gdesc
+        }
 
 resolve
     :: Semigroup a
