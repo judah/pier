@@ -9,6 +9,7 @@ module Development.Stake.Stackage
     , ghcArtifacts
     , ghcProg
     , ghcPkgProg
+    , hsc2hsProg
     , parseGlobalPackagePath
     , PlanName(..)
     , BuildPlan(..)
@@ -35,7 +36,6 @@ import Development.Stake.Orphans ()
 import Development.Stake.Persistent
 import Development.Shake.FilePath
 import Development.Shake
-import System.IO.Temp
 
 newtype PlanName = PlanName { renderPlanName :: String }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
@@ -151,6 +151,14 @@ ghcPkgProg ghc args =
         <> input (ghcLibRoot ghc)
         <> input (globalPackageDb ghc)
 
+hsc2hsProg :: InstalledGhc -> [String] -> Command
+hsc2hsProg ghc args =
+    progA (ghcBinDir ghc /> "hsc2hs")
+        (("--template=${TMPDIR}/" ++ relPath template) : args)
+    <> input template
+  where
+    template = ghcLibRoot ghc /> "template-hsc.h"
+
 installGhcRules :: Rules ()
 installGhcRules = addPersistent $ \(InstallGhc version) -> do
     setupYaml <- askDownload Download
@@ -223,31 +231,28 @@ downloadAndInstallGHC version download = do
             }
     -- TODO: check file size and sha1
     let installDir = "ghc-install"
-    -- TODO: make this more deterministic:
-    -- GHC refuses to get installed in a relative directory.
-    -- So, fake it by "installing" in a temp directory, then moving it to the
-    -- final location.
-    -- Note this makes the command not deterministic, so rebuilds will be slow...
-    temp <- liftIO $ getCanonicalTemporaryDirectory
-                        >>= flip createTempDirectory "ghc-install"
     -- TODO: do untar and configure/install in a single call?
-    -- --configure isn't really hermetic...
     untarred <- let unpackedDir = "ghc-" ++ Cabal.display version
                 in runCommand (output unpackedDir)
                     -- -J extracts XZ files; which is currently used for all
                     -- ghc versions in stack-setup2.yaml.
-                    $ input tar <> message "Unpacking GHC"
+                    $ input tar
+                    <> message "Unpacking GHC"
                     <> prog "tar" ["-xJf", relPath tar]
+    -- GHC's configure step requires an absolute prefix.
+    -- We'll install it explicitly in ${TMPDIR}, but that puts explicit references
+    -- to those paths in the package DB.  So we'll then generate a new DB with
+    -- relative paths.
     let untarredCopy = "ghc-temp"
     installed <- runCommand
        (output installDir)
        $ copyArtifact untarred untarredCopy
           <> withCwd untarredCopy
                 (message "Installing GHC"
-                <> progTemp (relPath untarred </> "configure") ["--prefix=" ++ temp]
+                <> progTemp (relPath untarred </> "configure")
+                        ["--prefix=${TMPDIR}/" ++ installDir]
                 <> prog "make" ["install"])
-          <> prog "mv" [temp, installDir]
-    fixed <- makeRelativeGlobalDb temp
+    fixed <- makeRelativeGlobalDb
                     InstalledGhc { ghcInstallDir = installed
                                  , ghcInstalledVersion = version
                                  , globalPackageDb
@@ -256,8 +261,8 @@ downloadAndInstallGHC version download = do
     runCommand_ $ ghcPkgProg fixed ["check"]
     return fixed
 
-makeRelativeGlobalDb :: FilePath -> InstalledGhc -> Action InstalledGhc
-makeRelativeGlobalDb tempDir ghc = do
+makeRelativeGlobalDb :: InstalledGhc -> Action InstalledGhc
+makeRelativeGlobalDb ghc = do
     -- List all packages, excluding Cabal which stack doesn't consider a "core"
     -- package.
     -- TODO: if our package ids included a hash, this wouldn't be as big a problem
@@ -269,9 +274,10 @@ makeRelativeGlobalDb tempDir ghc = do
     let makePkgConf pkg = do
             desc <- runCommandStdout
                         $ ghcPkgProg ghc ["describe", pkg]
+            let tempRoot = parsePkgRoot desc
             let desc' =
                     T.unpack
-                    . T.replace (T.pack tempDir) (T.pack "${pkgroot}/../ghc-install")
+                    . T.replace (T.pack tempRoot) (T.pack "${pkgroot}/../ghc-install")
                     . T.pack
                     $ desc
             writeArtifact (pkg ++ ".conf") desc'
@@ -291,3 +297,17 @@ makeRelativeGlobalDb tempDir ghc = do
             <> input (ghcInstallDir ghc)
             <> inputList confs
     return ghc { globalPackageDb = fixedDb }
+
+-- TODO: this gets the TMPDIR that was used when installing; consider allowing
+-- that to be captured explicitly.
+parsePkgRoot :: String -> String
+parsePkgRoot desc = loop $ lines desc
+  where
+    loop [] = error "Couldn't parse pkgRoot: " ++ show desc
+    loop (l:ls)
+        | take (length prefix) l == prefix = takeDirectory
+                                            . takeDirectory
+                                            . takeDirectory
+                                            $ drop (length prefix) l
+        | otherwise = loop ls
+    prefix = "library-dirs: "

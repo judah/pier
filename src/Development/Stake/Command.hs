@@ -296,7 +296,7 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
                                 CallTemp f -> tmp </> f
                     quietly $ unStdout
                             <$> command [Cwd $ tmp </> cwd, Env defaultEnv]
-                                    p' as
+                                    p' (map (spliceTempDir tmp) as)
         out <- B.concat <$> mapM run progs
         liftIO $ B.writeFile (tmp </> stdoutPath) out
         liftIO $ forM_ outs $ \f -> do
@@ -319,6 +319,9 @@ stdoutPath = ".stdout"
 
 defaultEnv :: [(String, String)]
 defaultEnv = [("PATH", "/usr/bin:/bin")]
+
+spliceTempDir :: FilePath -> String -> String
+spliceTempDir tmp = T.unpack . T.replace (T.pack "${TMPDIR}") (T.pack tmp) . T.pack
 
 checkAllDistinctPaths :: [Artifact] -> Action ()
 checkAllDistinctPaths as =

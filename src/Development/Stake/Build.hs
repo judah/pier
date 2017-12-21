@@ -462,7 +462,7 @@ search ghc bi cIncludeDirs m srcDir
         exists hsc
         let relOutput = toFilePath m <.> "hs"
         lift $ runCommand (output relOutput)
-             $ prog "hsc2hs"
+             $ hsc2hsProg ghc
                       (["-o", relOutput
                        , relPath hsc
                        ]
