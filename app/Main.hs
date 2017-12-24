@@ -11,11 +11,15 @@ import Development.Stake.Command
 import Development.Stake.Download
 import Development.Stake.Stackage
 import Distribution.Package
-import Distribution.Text (simpleParse)
+import Distribution.Text (display, simpleParse)
 import Options.Applicative hiding (action)
 import System.Environment
 
-data CommandOpt = Clean | CleanAll | Build [(PackageName, Target)]
+data CommandOpt
+    = Clean
+    | CleanAll
+    | Build [(PackageName, Target)]
+    | Exec (PackageName, Target) [String]
 type ShakeFlag = String
 
 verbosity :: Parser [ShakeFlag]
@@ -48,11 +52,16 @@ cleanAllCommand = pure CleanAll
 buildCommand :: Parser CommandOpt
 buildCommand = Build <$> some (argument (eitherReader parseTarget) (metavar "TARGET"))
 
+execCommand :: Parser CommandOpt
+execCommand = Exec <$> argument (eitherReader parseTarget) (metavar "TARGET")
+                <*> many (strArgument (metavar "ARGUMENT"))
+
 stakeCmd :: Parser CommandOpt
 stakeCmd = subparser $
     command "clean" (info cleanCommand  (progDesc "Clean project")) <>
     command "clean-all" (info cleanAllCommand (progDesc "Clean project & dependencies")) <>
-    command "build" (info buildCommand (progDesc "Build Project"))
+    command "build" (info buildCommand (progDesc "Build Project")) <>
+    command "exec" (info execCommand (progDesc "Run executable"))
 
 opts :: ParserInfo (FilePath, CommandOpt, [ShakeFlag])
 opts = info args mempty
@@ -66,6 +75,14 @@ runWithOptions :: CommandOpt -> Rules ()
 runWithOptions Clean = cleanBuild
 runWithOptions CleanAll =  liftIO unfreezeArtifacts >> cleanAll
 runWithOptions (Build targets) = action $ forP targets (uncurry buildTarget)
+runWithOptions (Exec (pkg, target) args) = action $ do
+    name <- case target of
+                TargetExe name -> return name
+                TargetAll -> return $ display pkg
+                TargetAllExes -> return $ display pkg
+                TargetLib -> error "exec can't be used with a \"lib\" target"
+    exe <- buildExecutableNamed pkg name
+    liftIO $ callArtifact (builtExeDataFiles exe) (builtBinary exe) args
 
 main :: IO ()
 main = do
@@ -85,6 +102,7 @@ data Target
     | TargetLib
     | TargetAllExes
     | TargetExe String
+    deriving Show
 
 parseTarget :: String -> Either String (PackageName, Target)
 parseTarget s = case splitOn ":" s of

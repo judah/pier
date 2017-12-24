@@ -31,6 +31,7 @@ module Development.Stake.Command
     , matchArtifactGlob
     , unfreezeArtifacts
     , copyArtifact
+    , callArtifact
     ) where
 
 import Crypto.Hash.SHA256
@@ -151,7 +152,9 @@ copyArtifact :: Artifact -> FilePath -> Command
 copyArtifact src dest
     | isAbsolute dest
         = error $ "copyArtifact: requires relative destination, found " ++ show dest
-    | otherwise = prog "cp" ["-pRL", relPath src, dest]
+    | otherwise =   prog "mkdir" ["-p", takeDirectory dest]
+                    -- TODO: first remove if it already exists?
+                    <> prog "cp" ["-pRL", relPath src, dest]
                     -- Unfreeze the files so they can be modified by later calls within
                     -- the same `runCommand`
                     <> prog "chmod" ["-R", "u+w", dest]
@@ -269,7 +272,7 @@ runCommand_ = runCommand (pure ())
 -- sandboxes.
 
 commandRules :: Rules ()
-commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
+commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
     h <- commandHash cmdQ
     let outDir = hashDir h
     -- Skip if the output directory already exists; we'll produce it atomically
@@ -279,9 +282,7 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
     unless exists $ do
         tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
                                                         (hashString h)
-        let inps = dedupArtifacts inps'
-        checkAllDistinctPaths inps
-        liftIO $ mapM_ (linkArtifact tmp) inps
+        liftIO $ collectInputs inps tmp
         mapM_ (createParentIfMissing . (tmp </>)) outs
         let unStdout (Stdout out) = out
         -- TODO: more flexibility around the env vars
@@ -314,6 +315,13 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps') outs) -> do
         liftIO $ removeDirectoryRecursive tmp
     return h
 
+-- TODO: more hermetic?
+collectInputs :: Set Artifact -> FilePath -> IO ()
+collectInputs inps tmp = do
+    let inps' = dedupArtifacts inps
+    checkAllDistinctPaths inps'
+    liftIO $ mapM_ (linkArtifact tmp) inps'
+
 stdoutPath :: FilePath
 stdoutPath = ".stdout"
 
@@ -323,7 +331,7 @@ defaultEnv = [("PATH", "/usr/bin:/bin")]
 spliceTempDir :: FilePath -> String -> String
 spliceTempDir tmp = T.unpack . T.replace (T.pack "${TMPDIR}") (T.pack tmp) . T.pack
 
-checkAllDistinctPaths :: [Artifact] -> Action ()
+checkAllDistinctPaths :: Monad m => [Artifact] -> m ()
 checkAllDistinctPaths as =
     case Map.keys . Map.filter (> 1) . Map.fromListWith (+)
             . map (\a -> (relPath a, 1 :: Integer)) $ as of
@@ -441,3 +449,15 @@ matchArtifactGlob (Artifact External f) g
 matchArtifactGlob a@(Artifact (Built h) f) g
     = fmap (map (Artifact (Built h) . normalise . (f </>)))
             $ liftIO $ matchDirFileGlob (artifactRealPath a) g
+
+-- TODO: merge more with above code?  How hermetic should it be?
+callArtifact :: Set Artifact -> Artifact -> [String] -> IO ()
+callArtifact inps bin args = do
+    tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
+                                                        "exec"
+    -- TODO: preserve if it fails?  Make that a parameter?
+    collectInputs (Set.insert bin inps) tmp
+    cmd_ [Cwd tmp]
+        (tmp </> relPath bin) args
+    -- Clean up the temp directory, but only if the above commands succeeded.
+    liftIO $ removeDirectoryRecursive tmp

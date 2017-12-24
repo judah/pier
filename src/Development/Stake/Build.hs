@@ -6,6 +6,7 @@ module Development.Stake.Build
     , askMaybeBuiltLibrary
     , buildExecutables
     , buildExecutableNamed
+    , BuiltExecutable(..)
     )
     where
 
@@ -53,13 +54,17 @@ data TransitiveDeps = TransitiveDeps
     { transitiveDBs :: Set Artifact
     , transitiveLibFiles :: Set Artifact
     , transitiveIncludeDirs :: Set Artifact
+    , transitiveDataFiles :: Set Artifact
     } deriving (Show, Eq, Typeable, Generic, Hashable, Binary, NFData)
+
 instance Semigroup TransitiveDeps
 
 instance Monoid TransitiveDeps where
-    mempty = TransitiveDeps Set.empty Set.empty Set.empty
-    TransitiveDeps x y z `mappend` TransitiveDeps x' y' z'
-        = TransitiveDeps (x <> x') (y <> y') (z <> z')
+    mempty = TransitiveDeps Set.empty Set.empty Set.empty Set.empty
+    TransitiveDeps dbs files is datas
+        `mappend` TransitiveDeps dbs' files' is' datas'
+        = TransitiveDeps (dbs <> dbs') (files <> files') (is <> is')
+                (datas <> datas')
 
 
 -- ghc --package-db .stake/...text-1234.pkg/db --package text-1234
@@ -141,7 +146,8 @@ getBuiltinLib p = do
                             = Set.fromList
                                     $ map (parseGlobalPackagePath ghc)
                                     $ IP.includeDirs info
-                        }
+                    , transitiveDataFiles = Set.empty
+                    }
 
 buildLibraryFromDesc
     :: BuiltDeps
@@ -164,7 +170,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     let pkgDir = (packageSourceDir />)
     let modules = otherModules lbi ++ exposedModules lib
     let cIncludeDirs = transitiveIncludeDirs transDeps
-                        <> Set.map pkgDir (Set.fromList $ ifNull ""
+                        <> Set.map pkgDir (Set.fromList $ ifNullDirs
                                                 $ includeDirs lbi)
     let cFiles = map pkgDir $ cSources lbi
     moduleFiles <- mapM (findModule ghc desc lbi cIncludeDirs
@@ -208,12 +214,14 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                 return (Just (libName, lib), Set.fromList [libArchive, dynLib, hiDir'])
     pkgDb <- registerPackage ghc pkgPrefixDir (package desc) lbi maybeLib
                 deps libFiles
+    datas <- collectDataFiles desc packageSourceDir
     return $ BuiltLibrary (package desc)
             $ transDeps <> TransitiveDeps
                 { transitiveDBs = Set.singleton pkgDb
                 , transitiveLibFiles = libFiles
                 -- TODO:
                 , transitiveIncludeDirs = Set.empty
+                , transitiveDataFiles = maybe Set.empty Set.singleton datas
                 }
 
 arParams :: String
@@ -223,8 +231,13 @@ arParams = case buildOS of
 
 -- TODO: double-check no two executables with the same name
 
+data BuiltExecutable = BuiltExecutable
+    { builtBinary :: Artifact
+    , builtExeDataFiles :: Set Artifact
+    }
+
 -- TODO: figure out the whole caching story
-buildExecutables :: PackageName -> Action (Map.Map String Artifact)
+buildExecutables :: PackageName -> Action (Map.Map String BuiltExecutable)
 buildExecutables p = getConfiguredPackage p >>= \case
     Left _ -> return Map.empty
     Right (desc, dir) ->
@@ -234,7 +247,7 @@ buildExecutables p = getConfiguredPackage p >>= \case
             $ executables desc
 
 -- TODO: error if not buildable?
-buildExecutableNamed :: PackageName -> String -> Action Artifact
+buildExecutableNamed :: PackageName -> String -> Action BuiltExecutable
 buildExecutableNamed p e = getConfiguredPackage p >>= \case
     Left pid -> error $ "Built-in package " ++ display pid
                         ++ " has no executables"
@@ -248,7 +261,7 @@ buildExecutable
     :: PackageDescription
     -> Artifact
     -> Executable
-    -> Action Artifact
+    -> Action BuiltExecutable
 buildExecutable desc packageSourceDir exe = do
     let bi = buildInfo exe
     deps@(BuiltDeps _ transDeps)
@@ -260,7 +273,7 @@ buildExecutable desc packageSourceDir exe = do
     let outPath = "bin" </> exeName exe
     let cIncludeDirs = transitiveIncludeDirs transDeps
                         <> Set.map (packageSourceDir />)
-                                 (Set.fromList $ ifNull "" $ includeDirs bi)
+                                 (Set.fromList $ ifNullDirs $ includeDirs bi)
     let findM = findModule ghc desc bi cIncludeDirs
                     $ sourceDirArtifacts packageSourceDir bi
     otherModuleFiles <- mapM findM $ addIfMissing pathsMod $ otherModules bi
@@ -270,7 +283,8 @@ buildExecutable desc packageSourceDir exe = do
                             False -> findM $ filePathToModule $ modulePath exe
     moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
     -- TODO: c includes
-    runCommand (output outPath)
+    datas <- collectDataFiles desc packageSourceDir
+    bin <- runCommand (output outPath)
         $ message ("Building " ++ display (package desc)
                         ++ " (" ++ exeName exe ++ ")")
         <> inputList moduleBootFiles
@@ -280,6 +294,11 @@ buildExecutable desc packageSourceDir exe = do
                 , "-odir", outputPrefix </> "o"
                 ]
                 (addIfMissing mainFile otherModuleFiles)
+    return BuiltExecutable
+        { builtBinary = bin
+        , builtExeDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
+                                datas
+        }
   where
     pathsMod = fromString $ "Paths_" ++ display (packageName desc)
     addIfMissing m ms
@@ -339,7 +358,7 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir
 
 sourceDirArtifacts :: Artifact -> BuildInfo -> [Artifact]
 sourceDirArtifacts packageSourceDir bi
-    = map (packageSourceDir />) $ ifNull "" $ hsSourceDirs bi
+    = map (packageSourceDir />) $ ifNullDirs $ hsSourceDirs bi
 
 registerPackage
     :: InstalledGhc
@@ -421,11 +440,10 @@ genPathsModule m pkg = do
                                             $ pkgVersion pkg)
                                 ++ ""
                         ++ " []" -- tags are deprecated
-        -- TODO:
         , "getDataFileName :: FilePath -> IO FilePath"
-        , "getDataFileName = error \"getDataFileName: TODO\""
+        , "getDataFileName f = (\\d -> d ++ \"/\" ++ f) <$> getDataDir"
         , "getDataDir :: IO FilePath"
-        , "getDataDir = error \"getDataDir: TODO\""
+        , "getDataDir = return " ++ show (dataFilesPath pkg)
         ]
   where
     pathsModule = fromString $ "Paths_" ++ map fixHyphen (display $ pkgName pkg)
@@ -485,9 +503,9 @@ search ghc bi cIncludeDirs m srcDir
     existing ext = let f = srcDir /> (toFilePath m <.> ext)
                  in exists f >> return f
 
-ifNull :: a -> [a] -> [a]
-ifNull x [] = [x]
-ifNull _ xs = xs
+ifNullDirs :: [FilePath] -> [FilePath]
+ifNullDirs [] = [""]
+ifNullDirs xs = xs
 
 -- Find the "hs-boot" file corresponding to a "hs" file.
 findBootFile :: Artifact -> Action (Maybe Artifact)
@@ -513,6 +531,20 @@ findIncludeInputs pkgDir bi = filterM doesArtifactExist candidates
                  | d <- "" : includeDirs bi
                  , f <- includes bi ++ installIncludes bi
                  ]
+
+collectDataFiles :: PackageDescription -> Artifact -> Action (Maybe Artifact)
+collectDataFiles desc dir = do
+    let outDir = dataFilesPath (package desc)
+    let inDir = dir /> dataDir desc
+    if null (dataFiles desc)
+        then return Nothing
+        else fmap Just
+                . runCommand (output outDir)
+                . foldMap (\f -> copyArtifact (inDir /> f) (outDir </> f))
+                $ dataFiles desc
+
+dataFilesPath :: PackageIdentifier -> FilePath
+dataFilesPath pkg = display pkg </> "data-files"
 
 cppVersion :: Version -> String
 cppVersion v = case versionBranch v of
