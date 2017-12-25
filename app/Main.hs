@@ -9,6 +9,7 @@ import Development.Stake.Config
 import Development.Stake.Core
 import Development.Stake.Command
 import Development.Stake.Download
+import Development.Stake.Persistent
 import Development.Stake.Stackage
 import Distribution.Package
 import Distribution.Text (display, simpleParse)
@@ -72,17 +73,24 @@ opts = info args mempty
                                 <> value "stack.yaml")
 
 runWithOptions :: CommandOpt -> Rules ()
-runWithOptions Clean = cleanBuild
-runWithOptions CleanAll =  liftIO unfreezeArtifacts >> cleanAll
-runWithOptions (Build targets) = action $ forP targets (uncurry buildTarget)
-runWithOptions (Exec (pkg, target) args) = action $ do
-    name <- case target of
-                TargetExe name -> return name
-                TargetAll -> return $ display pkg
-                TargetAllExes -> return $ display pkg
-                TargetLib -> error "exec can't be used with a \"lib\" target"
-    exe <- buildExecutableNamed pkg name
-    liftIO $ callArtifact (builtExeDataFiles exe) (builtBinary exe) args
+runWithOptions Clean = cleaning True
+runWithOptions CleanAll = do
+    liftIO unfreezeArtifacts
+    cleaning True
+    cleanAll
+runWithOptions (Build targets) = do
+    cleaning False
+    action $ forP targets (uncurry buildTarget)
+runWithOptions (Exec (pkg, target) args) = do
+    cleaning False
+    action $ do
+        name <- case target of
+                    TargetExe name -> return name
+                    TargetAll -> return $ display pkg
+                    TargetAllExes -> return $ display pkg
+                    TargetLib -> error "exec can't be used with a \"lib\" target"
+        exe <- buildExecutableNamed pkg name
+        liftIO $ callArtifact (builtExeDataFiles exe) (builtBinary exe) args
 
 main :: IO ()
 main = do

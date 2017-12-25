@@ -3,6 +3,7 @@ module Development.Stake.Persistent
     ( addPersistent
     , askPersistent
     , askPersistents
+    , cleaning
     ) where
 
 import Data.Binary (encode, decodeOrFail)
@@ -11,6 +12,7 @@ import qualified Data.ByteString.Lazy as LBS
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.Rule
+import GHC.Generics
 
 newtype PersistentQ question = PersistentQ question
     deriving (Show, Typeable, Eq, Hashable, Binary, NFData)
@@ -30,6 +32,7 @@ addPersistent act = addBuiltinRule noLint $ \(PersistentQ q) old depsChanged
               , Just val <- decode' old'
                     -> return $ RunResult ChangedNothing old' val
     _ -> do
+            rerunIfCleaned
             new <- PersistentA <$> act q
             return $ RunResult
                     (if (old >>= decode') == Just new
@@ -61,3 +64,24 @@ askPersistents
     => [q]
     -> Action [a]
 askPersistents = fmap (map unPersistentA) . apply . map PersistentQ
+
+
+data Cleaner = Cleaner
+    deriving (Show, Typeable, Eq, Generic)
+instance Binary Cleaner
+instance NFData Cleaner
+instance Hashable Cleaner
+
+type instance RuleResult Cleaner = ()
+
+cleaning :: Bool -> Rules ()
+cleaning shouldClean = do
+    action rerunIfCleaned
+    addBuiltinRule noLint $ \Cleaner _ _ ->
+        let change = if shouldClean
+                        then ChangedRecomputeDiff
+                        else ChangedNothing
+        in return $ RunResult change BS.empty ()
+
+rerunIfCleaned :: Action ()
+rerunIfCleaned = apply1 Cleaner
