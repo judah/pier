@@ -284,21 +284,8 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
                                                         (hashString h)
         liftIO $ collectInputs inps tmp
         mapM_ (createParentIfMissing . (tmp </>)) outs
-        let unStdout (Stdout out) = out
-        -- TODO: more flexibility around the env vars
-        -- Also: limit valid parameters for the *prog* binary (rather than taking it
-        -- from the PATH that the `stake` executable sees).
-        let run (Message s) = putNormal s >> return B.empty
-            run (Prog p as cwd) = do
-                    -- hack around shake weirdness w.r.t. relative binary paths
-                    let p' = case p of
-                                CallEnv s -> s
-                                CallArtifact f -> tmp </> relPath f
-                                CallTemp f -> tmp </> f
-                    quietly $ unStdout
-                            <$> command [Cwd $ tmp </> cwd, Env defaultEnv]
-                                    p' (map (spliceTempDir tmp) as)
-        out <- B.concat <$> mapM run progs
+
+        out <- B.concat <$> mapM (readProg tmp) progs
         liftIO $ B.writeFile (tmp </> stdoutPath) out
         liftIO $ forM_ outs $ \f -> do
                         exist <- Directory.doesPathExist (tmp </> f)
@@ -321,6 +308,28 @@ collectInputs inps tmp = do
     let inps' = dedupArtifacts inps
     checkAllDistinctPaths inps'
     liftIO $ mapM_ (linkArtifact tmp) inps'
+
+-- Call a process inside the given directory and capture its stdout.
+-- TODO: more flexibility around the env vars
+-- Also: limit valid parameters for the *prog* binary (rather than taking it
+-- from the PATH that the `stake` executable sees).
+readProg :: FilePath -> Prog -> Action B.ByteString
+readProg _ (Message s) = putNormal s >> return B.empty
+readProg dir (Prog p as cwd) = do
+    let unStdout (Stdout out) = out
+    -- hack around shake weirdness w.r.t. relative binary paths
+    let p' = case p of
+                CallEnv s -> s
+                CallArtifact f -> dir </> relPath f
+                CallTemp f -> dir </> f
+    quietly $ unStdout
+            <$> command
+                    [ Cwd $ dir </> cwd
+                    , Env defaultEnv
+                    -- stderr will get printed if there's an error.
+                    , EchoStderr False
+                    ]
+                    p' (map (spliceTempDir dir) as)
 
 stdoutPath :: FilePath
 stdoutPath = ".stdout"
