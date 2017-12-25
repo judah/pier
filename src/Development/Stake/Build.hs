@@ -24,7 +24,6 @@ import Development.Shake.Classes
 import Development.Shake.FilePath hiding (exe)
 import Development.Stake.Command
 import Development.Stake.Config
-import Development.Stake.Core
 import Development.Stake.Package
 import Development.Stake.Stackage
 import Development.Stake.Persistent
@@ -116,8 +115,7 @@ getConfiguredPackage p = do
 
 
 buildLibrary :: BuiltLibraryR -> Action (Maybe BuiltLibrary)
-buildLibrary (BuiltLibraryR pkg) = do
-    rerunIfCleaned
+buildLibrary (BuiltLibraryR pkg) =
     getConfiguredPackage pkg >>= \case
         Left p -> Just <$> getBuiltinLib p
         Right (desc, dir)
