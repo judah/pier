@@ -23,6 +23,8 @@ module Development.Stake.Command
     , externalFile
     , (/>)
     , relPath
+    , outPath
+    , rootPrefix
     , replaceArtifactExtension
     , readArtifact
     , readArtifactB
@@ -35,7 +37,7 @@ module Development.Stake.Command
     ) where
 
 import Crypto.Hash.SHA256
-import Control.Monad (forM_, when, unless)
+import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Base64
@@ -124,6 +126,7 @@ prog p as = Command [Prog (CallEnv p) as "."] Set.empty
 progA :: Artifact -> [String] -> Command
 progA p as = Command [Prog (CallArtifact p) as "."] (Set.singleton p)
 
+-- TODO: should this be outPath by default?
 progTemp :: FilePath -> [String] -> Command
 progTemp p as = Command [Prog (CallTemp p) as "."] Set.empty
 
@@ -152,13 +155,15 @@ copyArtifact :: Artifact -> FilePath -> Command
 copyArtifact src dest
     | isAbsolute dest
         = error $ "copyArtifact: requires relative destination, found " ++ show dest
-    | otherwise =   prog "mkdir" ["-p", takeDirectory dest]
+    | otherwise =   prog "mkdir" ["-p", takeDirectory dest']
                     -- TODO: first remove if it already exists?
-                    <> prog "cp" ["-pRL", relPath src, dest]
+                    <> prog "cp" ["-pRL", relPath src, dest']
                     -- Unfreeze the files so they can be modified by later calls within
                     -- the same `runCommand`
-                    <> prog "chmod" ["-R", "u+w", dest]
+                    <> prog "chmod" ["-R", "u+w", dest']
                     <> input src
+  where
+    dest' = outPath dest
 
 data Output a = Output [FilePath] (Hash -> a)
 
@@ -170,7 +175,10 @@ instance Applicative Output where
     Output f g <*> Output f' g' = Output (f ++ f') (g <*> g')
 
 output :: FilePath -> Output Artifact
-output f = Output [f] $ flip Artifact (normalise f) . Built
+output f
+    | normalise f == "." = error $ "Can't output empty path " ++ show f
+    | isAbsolute f = error $ "Can't output absolute path " ++ show f
+    | otherwise = Output [f] $ flip Artifact (normalise f) . Built
 
 -- | Unique identifier of a command
 newtype Hash = Hash B.ByteString
@@ -195,6 +203,10 @@ artifactDir = stakeFile "artifact"
 
 hashString :: Hash -> String
 hashString (Hash h) = BC.unpack h
+
+rootPrefix :: FilePath
+rootPrefix = "../../.."
+
 
 data Artifact = Artifact Source FilePath
     deriving (Eq, Ord, Generic)
@@ -282,25 +294,40 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
     unless exists $ do
         tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
                                                         (hashString h)
+        let tmpOutPath = (tmp </>) . outPath
         liftIO $ collectInputs inps tmp
-        mapM_ (createParentIfMissing . (tmp </>)) outs
+        mapM_ (createParentIfMissing . tmpOutPath) outs
 
         out <- B.concat <$> mapM (readProg tmp) progs
-        liftIO $ B.writeFile (tmp </> stdoutPath) out
+        createParentIfMissing $ tmpOutPath stdoutPath
+        liftIO $ B.writeFile (tmpOutPath stdoutPath) out
+
         liftIO $ forM_ outs $ \f -> do
-                        exist <- Directory.doesPathExist (tmp </> f)
+                        exist <- Directory.doesPathExist (tmpOutPath f)
                         unless exist $
                             error $ "runCommand: missing output "
                                     ++ show f
+                                    ++ " in temporary directory "
+                                    ++ show tmp
         liftIO $ withSystemTempDirectory (hashString h) $ \tempOutDir -> do
             mapM_ (createParentIfMissing . (tempOutDir </>)) outs
-            mapM_ (\f -> renameAndFreezeFile (tmp </> f) (tempOutDir </> f)) outs
+            fixedOuts <- fmap concat . forM outs
+                            $ \f -> if normalise f /= "."
+                                    then return [f]
+                                    else fmap (f </>) <$> getRegularContents
+                                                                (tmpOutPath f)
+            forM_ fixedOuts
+                $ \f -> renameAndFreezeFile (tmpOutPath f)
+                                    (tempOutDir </> f)
             createParentIfMissing outDir
             -- Make the output directory appear atomically (see above).
             Directory.renameDirectory tempOutDir outDir
         -- Clean up the temp directory, but only if the above commands succeeded.
         liftIO $ removeDirectoryRecursive tmp
     return h
+
+outPath :: FilePath -> FilePath
+outPath f = artifactDir </> "out" </> f
 
 -- TODO: more hermetic?
 collectInputs :: Set Artifact -> FilePath -> IO ()
@@ -348,6 +375,7 @@ checkAllDistinctPaths as =
         -- TODO: nicer error, telling where they came from:
         fs -> error $ "Artifacts generated from more than one command: " ++ show fs
 
+-- TODO: IS THIS NOW REDUNDANT??
 -- Remove duplicate artifacts that are both outputs of the same command, and where
 -- one is a subdirectory of the other (for example, constructed via `/>`).
 dedupArtifacts :: Set Artifact -> [Artifact]
@@ -383,9 +411,12 @@ forFileRecursive_ act f = do
     if not isDir
         then act f
         else do
-            fs <- filter (not . specialFile) <$> Directory.getDirectoryContents f
-            mapM_ (forFileRecursive_ act . (f </>)) fs
+            getRegularContents f >>= mapM_ (forFileRecursive_ act . (f </>))
             act f
+
+getRegularContents :: FilePath -> IO [FilePath]
+getRegularContents f = 
+    filter (not . specialFile) <$> Directory.getDirectoryContents f
   where
     specialFile "." = True
     specialFile ".." = True
@@ -435,7 +466,7 @@ readArtifactB f = liftIO $ B.readFile $ artifactRealPath f
 -- externalFile called on an absolute path.
 -- TODO: rename?
 relPath :: Artifact -> FilePath
-relPath (Artifact _ f) = f
+relPath = artifactRealPath
 
 writeArtifact :: MonadIO m => FilePath -> String -> m Artifact
 writeArtifact path contents = liftIO $ do

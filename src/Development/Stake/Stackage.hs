@@ -230,7 +230,6 @@ downloadAndInstallGHC version download = do
             , downloadUrlPrefix = url
             }
     -- TODO: check file size and sha1
-    let installDir = "ghc-install"
     -- TODO: do untar and configure/install in a single call?
     untarred <- let unpackedDir = "ghc-" ++ Cabal.display version
                 in runCommand (output unpackedDir)
@@ -238,19 +237,20 @@ downloadAndInstallGHC version download = do
                     -- ghc versions in stack-setup2.yaml.
                     $ input tar
                     <> message "Unpacking GHC"
-                    <> prog "tar" ["-xJf", relPath tar]
+                    <> prog "tar" ["-xJf", relPath tar, "-C", outPath ""]
     -- GHC's configure step requires an absolute prefix.
     -- We'll install it explicitly in ${TMPDIR}, but that puts explicit references
     -- to those paths in the package DB.  So we'll then generate a new DB with
     -- relative paths.
     let untarredCopy = "ghc-temp"
+    let installDir = "ghc-install"
     installed <- runCommand
        (output installDir)
        $ copyArtifact untarred untarredCopy
-          <> withCwd untarredCopy
+          <> withCwd (outPath untarredCopy)
                 (message "Installing GHC"
-                <> progTemp (relPath untarred </> "configure")
-                        ["--prefix=${TMPDIR}/" ++ installDir]
+                <> progTemp (outPath $ untarredCopy </> "configure")
+                        ["--prefix=${TMPDIR}/" ++ outPath installDir]
                 <> prog "make" ["install"])
     fixed <- makeRelativeGlobalDb
                     InstalledGhc { ghcInstallDir = installed
@@ -277,17 +277,19 @@ makeRelativeGlobalDb ghc = do
             let tempRoot = parsePkgRoot desc
             let desc' =
                     T.unpack
-                    . T.replace (T.pack tempRoot) (T.pack "${pkgroot}/../ghc-install")
+                    . T.replace (T.pack tempRoot)
+                        (T.pack $ "${pkgroot}/.." </> rootPrefix
+                                    </> relPath (ghcInstallDir ghc))
                     . T.pack
                     $ desc
             writeArtifact (pkg ++ ".conf") desc'
     confs <- mapM makePkgConf builtinPackages
     let globalRelativePackageDb = "global-packages/package-fixed.conf.d"
     fixedDb <- runCommand (output globalRelativePackageDb)
-        $ progA (ghcBinDir ghc /> "ghc-pkg") ["init", globalRelativePackageDb]
+        $ progA (ghcBinDir ghc /> "ghc-pkg") ["init", outPath globalRelativePackageDb]
             <> foldMap (\a -> progA (ghcBinDir ghc /> "ghc-pkg")
                                     [ "register", relPath a
-                                    , "--global-package-db=" ++ globalRelativePackageDb
+                                    , "--global-package-db=" ++ outPath globalRelativePackageDb
                                     , "--no-user-package-db"
                                     , "--no-user-package-conf"
                                     , "--no-expand-pkgroot"
