@@ -22,6 +22,7 @@ import GHC.Generics hiding (packageName)
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath hiding (exe)
+import Development.Stake.Build.Custom
 import Development.Stake.Command
 import Development.Stake.Config
 import Development.Stake.Package
@@ -212,7 +213,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                 return (Just (libName, lib), Set.fromList [libArchive, dynLib, hiDir'])
     pkgDb <- registerPackage ghc pkgPrefixDir (package desc) lbi maybeLib
                 deps libFiles
-    datas <- collectDataFiles desc packageSourceDir
+    datas <- collectDataFiles ghc desc packageSourceDir
     return $ BuiltLibrary (package desc)
             $ transDeps <> TransitiveDeps
                 { transitiveDBs = Set.singleton pkgDb
@@ -233,6 +234,10 @@ data BuiltExecutable = BuiltExecutable
     { builtBinary :: Artifact
     , builtExeDataFiles :: Set Artifact
     }
+
+progExe :: BuiltExecutable -> [String] -> Command
+progExe exe args = progA (builtBinary exe) args
+                <> inputs (builtExeDataFiles exe)
 
 -- TODO: figure out the whole caching story
 buildExecutables :: PackageName -> Action (Map.Map String BuiltExecutable)
@@ -281,7 +286,7 @@ buildExecutable desc packageSourceDir exe = do
                             False -> findM $ filePathToModule $ modulePath exe
     moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
     -- TODO: c includes
-    datas <- collectDataFiles desc packageSourceDir
+    datas <- collectDataFiles ghc desc packageSourceDir
     bin <- runCommand (output outPath)
         $ message ("Building " ++ display (package desc)
                         ++ " (" ++ exeName exe ++ ")")
@@ -468,8 +473,9 @@ search ghc bi cIncludeDirs m srcDir
         let yFile = srcDir /> (toFilePath m <.> ext)
         exists yFile
         let relOutput = toFilePath m <.> "hs"
+        happy <- lift $ buildExecutableNamed (PackageName "happy") "happy"
         lift . runCommand (output relOutput)
-             $ prog "happy"
+             $ progExe happy
                      ["-o", relOutput, relPath yFile]
                 <> input yFile
 
@@ -490,11 +496,12 @@ search ghc bi cIncludeDirs m srcDir
                 <> input hsc <> inputs cIncludeDirs
 
     genAlex ext = do
-       let xFile = srcDir /> (toFilePath m <.> ext)
-       exists xFile
-       let relOutput = toFilePath m <.> "hs"
-       lift . runCommand (output relOutput)
-            $ prog "alex"
+        let xFile = srcDir /> (toFilePath m <.> ext)
+        exists xFile
+        let relOutput = toFilePath m <.> "hs"
+        alex <- lift $ buildExecutableNamed (PackageName "alex") "alex"
+        lift . runCommand (output relOutput)
+            $ progExe alex
                      ["-o", relOutput, relPath xFile]
                <> input xFile
 
@@ -530,8 +537,16 @@ findIncludeInputs pkgDir bi = filterM doesArtifactExist candidates
                  , f <- includes bi ++ installIncludes bi
                  ]
 
-collectDataFiles :: PackageDescription -> Artifact -> Action (Maybe Artifact)
-collectDataFiles desc dir = do
+collectDataFiles
+    :: InstalledGhc -> PackageDescription -> Artifact -> Action (Maybe Artifact)
+collectDataFiles ghc desc dir = case display (packageName desc) of
+    "happy" -> Just <$> collectHappyDataFiles (package desc) ghc dir
+    "alex" -> Just <$> collectAlexDataFiles (package desc) ghc dir
+    _ -> collectPlainDataFiles desc dir
+
+collectPlainDataFiles
+    :: PackageDescription -> Artifact -> Action (Maybe Artifact)
+collectPlainDataFiles desc dir = do
     let outDir = dataFilesPath (package desc)
     let inDir = dir /> dataDir desc
     if null (dataFiles desc)
