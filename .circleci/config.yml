@@ -21,7 +21,7 @@ jobs:
             curl -L https://github.com/commercialhaskell/stack/releases/download/v1.6.1/stack-1.6.1-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
 
       # Build with `stack`
-      - run: stack --no-terminal install happy weeder alex hlint
+      - run: stack --no-terminal install weeder hlint
       - run: stack --no-terminal build --only-dependencies --fast --no-terminal
       - run: stack --no-terminal build --pedantic --fast --no-terminal
 
@@ -30,8 +30,8 @@ jobs:
 
       # Run stake on some sample packages
       # Note: it currently uses the `stack.yaml` of this `stake` repo itself.
-      - run: stack exec stake -- build happy alex lens pandoc language-c stake -j 2
-      - run: stack exec stake -- exec hlint $PWD/src
+      - run: $(stack exec which stake) build happy alex lens pandoc language-c stake -j 2
+      - run: $(stack exec which stake) exec hlint $PWD/src
 
       - save_cache:
             key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}
