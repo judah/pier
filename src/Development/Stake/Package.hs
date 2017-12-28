@@ -47,7 +47,7 @@ configurePackage plan packageSourceDir = do
     let name = display (packageName desc)
     case buildType desc of
         Just Configure -> do
-            let configuredDir = "package/configured" </> name
+            let configuredDir = name
             configuredPackage <- runCommand (output configuredDir)
                 $ copyArtifact packageSourceDir configuredDir
                 <> withCwd (pathOut configuredDir) (progTemp (pathOut $ configuredDir </> "configure") [])

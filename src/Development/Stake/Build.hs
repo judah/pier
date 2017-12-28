@@ -157,13 +157,12 @@ buildLibraryFromDesc
 buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
     conf <- askConfig
     let ghc = configGhc conf
-    let pkgPrefixDir = "lib"
     let lbi = libBuildInfo lib
     let hiDir = "hi"
     let oDir = "o"
     let libName = "HS" ++ display (packageName $ package desc)
-    let libFile = pkgPrefixDir </> "lib" ++ libName <.> "a"
-    let dynLibFile = pkgPrefixDir </> "lib" ++ libName
+    let libFile = "lib" ++ libName <.> "a"
+    let dynLibFile = "lib" ++ libName
                         ++ "-ghc" ++ display (ghcVersion $ plan conf) <.> dynExt
     let shouldBuildLib = not $ null $ exposedModules lib
     let pkgDir = (packageSourceDir />)
@@ -213,7 +212,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                                 (dynModuleObjs ++ cFiles)
                 return (Just (libName, lib, libArchive, dynLib, hiDir'),
                             Set.fromList [libArchive, dynLib, hiDir'])
-    pkgDb <- registerPackage ghc pkgPrefixDir (package desc) lbi maybeLib
+    pkgDb <- registerPackage ghc (package desc) lbi maybeLib
                 deps libFiles
     return $ BuiltLibrary (package desc)
             $ transDeps <> TransitiveDeps
@@ -364,7 +363,6 @@ sourceDirArtifacts packageSourceDir bi
 
 registerPackage
     :: InstalledGhc
-    -> String -- ^ output prefix dir
     -> PackageIdentifier
     -> BuildInfo
     -> Maybe ( String  -- Library name for linking
@@ -376,10 +374,10 @@ registerPackage
     -> BuiltDeps
     -> Set Artifact
     -> Action Artifact
-registerPackage ghc outPrefix pkg bi maybeLib (BuiltDeps depPkgs transDeps)
+registerPackage ghc pkg bi maybeLib (BuiltDeps depPkgs transDeps)
     libFiles
     = do
-    spec <- writeArtifact (outPrefix </> "spec") $ unlines $
+    spec <- writeArtifact "spec" $ unlines $
         [ "name: " ++ display (packageName pkg)
         , "version: " ++ display (packageVersion pkg)
         , "id: " ++ display pkg
@@ -390,7 +388,7 @@ registerPackage ghc outPrefix pkg bi maybeLib (BuiltDeps depPkgs transDeps)
         ++ case maybeLib of
             Nothing -> []
             Just (libName, lib, libA, dynLibA, hi) -> let
-                pre = "${pkgroot}/.." </> rootPrefix
+                pre = "${pkgroot}" </> rootPrefix
                 in [ "hs-libraries: " ++ libName
                    , "library-dirs: " ++ pre </> takeDirectory (pathIn libA)
                    , "dynamic-library-dirs: " ++ pre </> takeDirectory (pathIn dynLibA)
@@ -398,7 +396,7 @@ registerPackage ghc outPrefix pkg bi maybeLib (BuiltDeps depPkgs transDeps)
                    , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
                    , "hidden-modules: " ++ unwords (map display $ otherModules bi)
                    ]
-    let relPkgDb = outPrefix </> "db"
+    let relPkgDb = "db"
     runCommand (output relPkgDb)
         $ ghcPkgProg ghc ["init", pathOut relPkgDb]
             <> ghcPkgProg ghc
