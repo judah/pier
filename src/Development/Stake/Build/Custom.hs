@@ -30,7 +30,7 @@ collectHappyDataFiles ghc dir = do
         ]
     let dataFiles = "data-files"
     runCommand (output dataFiles) $
-        foldMap (\a -> copyArtifact a $ dataFiles </> takeBaseName (relPath a))
+        foldMap (\a -> copyArtifact a $ dataFiles </> takeBaseName (pathIn a))
             as
   where
     templates :: [(FilePath,[String])]
@@ -72,7 +72,7 @@ collectAlexDataFiles ghc dir =  do
         ]
     let dataFiles = "data-files"
     runCommand (output dataFiles) $
-        foldMap (\a -> copyArtifact a $ dataFiles </> takeBaseName (relPath a))
+        foldMap (\a -> copyArtifact a $ dataFiles </> takeBaseName (pathIn a))
             as
   where
     templates :: [(FilePath,[String])]
@@ -103,7 +103,7 @@ processTemplate
 processTemplate ghc baseTemplate outFile args = do
     a <- runCommand (output outFile)
         $ ghcProg ghc
-            (["-o", outPath outFile, "-E", "-cpp", relPath baseTemplate] ++ args)
+            (["-o", pathOut outFile, "-E", "-cpp", pathIn baseTemplate] ++ args)
         <> input baseTemplate
     writeArtifact outFile . unlines . map mungeLinePragma . lines
         =<< readArtifact a

@@ -133,10 +133,10 @@ ghcBinDir ghc = ghcLibRoot ghc /> "bin"
 ghcProg :: InstalledGhc -> [String] -> Command
 ghcProg ghc args =
     progA (ghcBinDir ghc /> "ghc")
-        (["-B" ++ relPath (ghcLibRoot ghc)
+        (["-B" ++ pathIn (ghcLibRoot ghc)
          , "-clear-package-db"
          , "-hide-all-packages"
-         , "-package-db=" ++ relPath (globalPackageDb ghc)
+         , "-package-db=" ++ pathIn (globalPackageDb ghc)
          ] ++ args)
         <> input (ghcLibRoot ghc)
         <> input (globalPackageDb ghc)
@@ -144,7 +144,7 @@ ghcProg ghc args =
 ghcPkgProg :: InstalledGhc -> [String] -> Command
 ghcPkgProg ghc args =
     progA (ghcBinDir ghc /> "ghc-pkg")
-        ([ "--global-package-db=" ++ relPath (globalPackageDb ghc)
+        ([ "--global-package-db=" ++ pathIn (globalPackageDb ghc)
          , "--no-user-package-db"
          , "--no-user-package-conf"
          ] ++ args)
@@ -154,7 +154,7 @@ ghcPkgProg ghc args =
 hsc2hsProg :: InstalledGhc -> [String] -> Command
 hsc2hsProg ghc args =
     progA (ghcBinDir ghc /> "hsc2hs")
-        (("--template=${TMPDIR}/" ++ relPath template) : args)
+        (("--template=${TMPDIR}/" ++ pathIn template) : args)
     <> input template
   where
     template = ghcLibRoot ghc /> "template-hsc.h"
@@ -237,7 +237,7 @@ downloadAndInstallGHC version download = do
                     -- ghc versions in stack-setup2.yaml.
                     $ input tar
                     <> message "Unpacking GHC"
-                    <> prog "tar" ["-xJf", relPath tar, "-C", outPath ""]
+                    <> prog "tar" ["-xJf", pathIn tar, "-C", pathOut ""]
     -- GHC's configure step requires an absolute prefix.
     -- We'll install it explicitly in ${TMPDIR}, but that puts explicit references
     -- to those paths in the package DB.  So we'll then generate a new DB with
@@ -247,10 +247,10 @@ downloadAndInstallGHC version download = do
     installed <- runCommand
        (output installDir)
        $ copyArtifact untarred untarredCopy
-          <> withCwd (outPath untarredCopy)
+          <> withCwd (pathOut untarredCopy)
                 (message "Installing GHC"
-                <> progTemp (outPath $ untarredCopy </> "configure")
-                        ["--prefix=${TMPDIR}/" ++ outPath installDir]
+                <> progTemp (pathOut $ untarredCopy </> "configure")
+                        ["--prefix=${TMPDIR}/" ++ pathOut installDir]
                 <> prog "make" ["install"])
     fixed <- makeRelativeGlobalDb
                     InstalledGhc { ghcInstallDir = installed
@@ -279,17 +279,17 @@ makeRelativeGlobalDb ghc = do
                     T.unpack
                     . T.replace (T.pack tempRoot)
                         (T.pack $ "${pkgroot}/.." </> rootPrefix
-                                    </> relPath (ghcInstallDir ghc))
+                                    </> pathIn (ghcInstallDir ghc))
                     . T.pack
                     $ desc
             writeArtifact (pkg ++ ".conf") desc'
     confs <- mapM makePkgConf builtinPackages
     let globalRelativePackageDb = "global-packages/package-fixed.conf.d"
     fixedDb <- runCommand (output globalRelativePackageDb)
-        $ progA (ghcBinDir ghc /> "ghc-pkg") ["init", outPath globalRelativePackageDb]
+        $ progA (ghcBinDir ghc /> "ghc-pkg") ["init", pathOut globalRelativePackageDb]
             <> foldMap (\a -> progA (ghcBinDir ghc /> "ghc-pkg")
-                                    [ "register", relPath a
-                                    , "--global-package-db=" ++ outPath globalRelativePackageDb
+                                    [ "register", pathIn a
+                                    , "--global-package-db=" ++ pathOut globalRelativePackageDb
                                     , "--no-user-package-db"
                                     , "--no-user-package-conf"
                                     , "--no-expand-pkgroot"

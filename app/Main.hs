@@ -98,7 +98,7 @@ runWithOptions (Which (pkg, target)) = do
     action $ do
         exe <- buildExeTarget pkg target
         -- TODO: nicer output format.
-        putNormal $ relPath (builtBinary exe)
+        putNormal $ pathIn (builtBinary exe)
 
 buildExeTarget :: PackageName -> Target -> Action BuiltExecutable
 buildExeTarget pkg target = do

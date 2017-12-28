@@ -35,7 +35,7 @@ getPackageSourceDir :: PackageIdentifier -> Action Artifact
 getPackageSourceDir pkg = do
     tarball <- downloadCabalPackage pkg
     runCommand (output outDir)
-        $ prog "tar" ["-xzf", relPath tarball, "-C", outPath (takeDirectory outDir)]
+        $ prog "tar" ["-xzf", pathIn tarball, "-C", pathOut (takeDirectory outDir)]
         <> input tarball
   where
     outDir = "package/raw" </> display pkg
@@ -50,7 +50,7 @@ configurePackage plan packageSourceDir = do
             let configuredDir = "package/configured" </> name
             configuredPackage <- runCommand (output configuredDir)
                 $ copyArtifact packageSourceDir configuredDir
-                <> withCwd (outPath configuredDir) (progTemp (outPath $ configuredDir </> "configure") [])
+                <> withCwd (pathOut configuredDir) (progTemp (pathOut $ configuredDir </> "configure") [])
             let buildInfoFile = configuredPackage />
                                     (name <.> "buildinfo")
             buildInfoExists <- doesArtifactExist buildInfoFile
