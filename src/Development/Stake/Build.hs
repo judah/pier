@@ -182,7 +182,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
             else do
                 (hiDir', oDir') <- runCommand
                     (liftA2 (,) (output hiDir) (output oDir))
-                    $ message ("Building " ++ display (package desc))
+                    $ message (display (package desc) ++ ": building library")
                     <> inputList (moduleBootFiles ++ cIncludes)
                     <> ghcCommand ghc deps lbi packageSourceDir
                             [ "-this-unit-id", display $ package desc
@@ -198,18 +198,16 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                                         cFiles
                 let dynModuleObjs = map (\m -> oDir' /> (toFilePath m <.> "dyn_o")) modules
                 libArchive <- runCommand (output libFile)
-                                    $ inputList objs
-                                    <> message ("Linking static lib for "
-                                                    ++ display (package desc))
-                                    <> prog "ar" ([arParams, libFile]
-                                                    ++ map relPath objs)
+                    $ inputList objs
+                    <> message (display (package desc) ++ ": linking static library")
+                    <> prog "ar" ([arParams, libFile]
+                                    ++ map relPath objs)
                 dynLib <- runCommand (output dynLibFile)
-                            $ inputList cIncludes
-                            <> message ("Linking dynamic lib for "
-                                            ++ display (package desc))
-                            <> ghcCommand ghc deps lbi packageSourceDir
-                                ["-shared", "-dynamic", "-o", dynLibFile]
-                                (dynModuleObjs ++ cFiles)
+                    $ inputList cIncludes
+                    <> message (display (package desc) ++ ": linking dynamic library")
+                    <> ghcCommand ghc deps lbi packageSourceDir
+                        ["-shared", "-dynamic", "-o", dynLibFile]
+                        (dynModuleObjs ++ cFiles)
                 return (Just (libName, lib), Set.fromList [libArchive, dynLib, hiDir'])
     pkgDb <- registerPackage ghc pkgPrefixDir (package desc) lbi maybeLib
                 deps libFiles
@@ -288,8 +286,8 @@ buildExecutable desc packageSourceDir exe = do
     -- TODO: c includes
     datas <- collectDataFiles ghc desc packageSourceDir
     bin <- runCommand (output outPath)
-        $ message ("Building " ++ display (package desc)
-                        ++ " (" ++ exeName exe ++ ")")
+        $ message (display (package desc) ++ ": building executable "
+                    ++ exeName exe)
         <> inputList moduleBootFiles
         <> ghcCommand ghc deps bi packageSourceDir
                 [ "-o", outPath

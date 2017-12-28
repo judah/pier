@@ -248,7 +248,7 @@ downloadAndInstallGHC version download = do
        (output installDir)
        $ copyArtifact untarred untarredCopy
           <> withCwd untarredCopy
-                (message "Installing GHC"
+                (message "Installing GHC locally"
                 <> progTemp (relPath untarred </> "configure")
                         ["--prefix=${TMPDIR}/" ++ installDir]
                 <> prog "make" ["install"])
