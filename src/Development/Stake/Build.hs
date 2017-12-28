@@ -191,12 +191,12 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                             , "-dynamic-too"
                             ]
                             (moduleFiles ++ cFiles)
-                let objs = map (\m -> oDir' /> (toFilePath m <.> "o")) modules
+                let objs = map (\m -> oDir' /> toFilePath m <.> "o") modules
                                 -- TODO: this is pretty janky...
                                 ++ map (\f -> replaceArtifactExtension
                                                     (oDir'/> pathIn f) "o")
                                         cFiles
-                let dynModuleObjs = map (\m -> oDir' /> (toFilePath m <.> "dyn_o")) modules
+                let dynModuleObjs = map (\m -> oDir' /> toFilePath m <.> "dyn_o") modules
                 libArchive <- runCommand (output libFile)
                     $ inputList objs
                     <> message (display (package desc) ++ ": linking static library")
@@ -474,7 +474,7 @@ search ghc bi cIncludeDirs m srcDir
       existing "hs"
   where
     genHappy ext = do
-        let yFile = srcDir /> (toFilePath m <.> ext)
+        let yFile = srcDir /> toFilePath m <.> ext
         exists yFile
         let relOutput = toFilePath m <.> "hs"
         happy <- lift $ buildExecutableNamed (PackageName "happy") "happy"
@@ -484,7 +484,7 @@ search ghc bi cIncludeDirs m srcDir
                 <> input yFile
 
     genHsc2hs = do
-        let hsc = srcDir /> (toFilePath m <.> "hsc")
+        let hsc = srcDir /> toFilePath m <.> "hsc"
         exists hsc
         let relOutput = toFilePath m <.> "hs"
         lift $ runCommand (output relOutput)
@@ -500,7 +500,7 @@ search ghc bi cIncludeDirs m srcDir
                 <> input hsc <> inputs cIncludeDirs
 
     genAlex ext = do
-        let xFile = srcDir /> (toFilePath m <.> ext)
+        let xFile = srcDir /> toFilePath m <.> ext
         exists xFile
         let relOutput = toFilePath m <.> "hs"
         alex <- lift $ buildExecutableNamed (PackageName "alex") "alex"
@@ -509,7 +509,7 @@ search ghc bi cIncludeDirs m srcDir
                      ["-o", pathOut relOutput, pathIn xFile]
                <> input xFile
 
-    existing ext = let f = srcDir /> (toFilePath m <.> ext)
+    existing ext = let f = srcDir /> toFilePath m <.> ext
                  in exists f >> return f
 
 ifNullDirs :: [FilePath] -> [FilePath]

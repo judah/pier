@@ -231,6 +231,8 @@ externalFile = Artifact External . normalise
 (/>) :: Artifact -> FilePath -> Artifact
 Artifact source f /> g = Artifact source $ normalise $ f </> g
 
+infixr 5 />  -- Same as </>
+
 -- TODO: go back to </> for artifacts (or some one-sided operator),
 -- and add a check that no two inputs for the same Command are
 -- subdirs of each other
