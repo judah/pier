@@ -9,16 +9,14 @@ module Development.Stake.Build.Custom
 
 import Data.Char (isDigit)
 import Data.Monoid
-import Distribution.Package
-import Distribution.Text
 import Development.Shake
 import Development.Shake.FilePath
 import Development.Stake.Command
 import Development.Stake.Stackage
 
 collectHappyDataFiles
-    :: PackageIdentifier -> InstalledGhc -> Artifact -> Action Artifact
-collectHappyDataFiles pkg ghc dir = do
+    :: InstalledGhc -> Artifact -> Action Artifact
+collectHappyDataFiles ghc dir = do
     as <- concat <$> sequence
         [ mapM (uncurry $ processTemplate ghc (dir /> "templates/GenericTemplate.hs"))
              templates
@@ -27,9 +25,9 @@ collectHappyDataFiles pkg ghc dir = do
         , mapM (uncurry $ processTemplate ghc (dir /> "templates/GLR_Lib.hs"))
              glr_templates
         ]
-    let out = dataFilesPath pkg
-    runCommand (output out) $
-        foldMap (\a -> copyArtifact a $ out </> takeBaseName (relPath a))
+    let dataFiles = "data-files"
+    runCommand (output dataFiles) $
+        foldMap (\a -> copyArtifact a $ dataFiles </> takeBaseName (pathIn a))
             as
   where
     templates :: [(FilePath,[String])]
@@ -61,17 +59,17 @@ collectHappyDataFiles pkg ghc dir = do
 
 
 collectAlexDataFiles
-    :: PackageIdentifier -> InstalledGhc -> Artifact -> Action Artifact
-collectAlexDataFiles pkg ghc dir =  do
+    :: InstalledGhc -> Artifact -> Action Artifact
+collectAlexDataFiles ghc dir =  do
     as <- concat <$> sequence
         [ mapM (uncurry $ processTemplate ghc (dir /> "templates/GenericTemplate.hs"))
              templates
         , mapM (uncurry $ processTemplate ghc (dir /> "templates/wrappers.hs"))
              wrappers
         ]
-    let out = dataFilesPath pkg
-    runCommand (output out) $
-        foldMap (\a -> copyArtifact a $ out </> takeBaseName (relPath a))
+    let dataFiles = "data-files"
+    runCommand (output dataFiles) $
+        foldMap (\a -> copyArtifact a $ dataFiles </> takeBaseName (pathIn a))
             as
   where
     templates :: [(FilePath,[String])]
@@ -102,14 +100,10 @@ processTemplate
 processTemplate ghc baseTemplate outFile args = do
     a <- runCommand (output outFile)
         $ ghcProg ghc
-            (["-o", outFile, "-E", "-cpp", relPath baseTemplate] ++ args)
+            (["-o", pathOut outFile, "-E", "-cpp", pathIn baseTemplate] ++ args)
         <> input baseTemplate
     writeArtifact outFile . unlines . map mungeLinePragma . lines
         =<< readArtifact a
-
--- TODO: avoid redundancy with the same function in Development.Stake.Build
-dataFilesPath :: PackageIdentifier -> FilePath
-dataFilesPath pkg = display pkg </> "data-files"
 
 
 --------------------------------------------------------------------------------

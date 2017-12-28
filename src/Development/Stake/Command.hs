@@ -22,7 +22,9 @@ module Development.Stake.Command
     , Artifact
     , externalFile
     , (/>)
-    , relPath
+    , pathIn
+    , pathOut
+    , rootPrefix
     , replaceArtifactExtension
     , readArtifact
     , readArtifactB
@@ -35,7 +37,7 @@ module Development.Stake.Command
     ) where
 
 import Crypto.Hash.SHA256
-import Control.Monad (forM_, when, unless)
+import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Base64
@@ -103,7 +105,7 @@ instance Show Prog where
         maybeCd
             | progCwd p == "." = ""
             | otherwise = "cd " ++ show (progCwd p) ++ " && "
-        showCall (CallArtifact a) = artifactRealPath a
+        showCall (CallArtifact a) = pathIn a
         -- TODO: this doesn't fully distinguish env and temp...
         showCall (CallEnv f) = f
         showCall (CallTemp f) = f
@@ -124,6 +126,7 @@ prog p as = Command [Prog (CallEnv p) as "."] Set.empty
 progA :: Artifact -> [String] -> Command
 progA p as = Command [Prog (CallArtifact p) as "."] (Set.singleton p)
 
+-- TODO: should this be pathOut by default?
 progTemp :: FilePath -> [String] -> Command
 progTemp p as = Command [Prog (CallTemp p) as "."] Set.empty
 
@@ -152,13 +155,15 @@ copyArtifact :: Artifact -> FilePath -> Command
 copyArtifact src dest
     | isAbsolute dest
         = error $ "copyArtifact: requires relative destination, found " ++ show dest
-    | otherwise =   prog "mkdir" ["-p", takeDirectory dest]
+    | otherwise =   prog "mkdir" ["-p", takeDirectory dest']
                     -- TODO: first remove if it already exists?
-                    <> prog "cp" ["-pRL", relPath src, dest]
+                    <> prog "cp" ["-pRL", pathIn src, dest']
                     -- Unfreeze the files so they can be modified by later calls within
                     -- the same `runCommand`
-                    <> prog "chmod" ["-R", "u+w", dest]
+                    <> prog "chmod" ["-R", "u+w", dest']
                     <> input src
+  where
+    dest' = pathOut dest
 
 data Output a = Output [FilePath] (Hash -> a)
 
@@ -170,7 +175,10 @@ instance Applicative Output where
     Output f g <*> Output f' g' = Output (f ++ f') (g <*> g')
 
 output :: FilePath -> Output Artifact
-output f = Output [f] $ flip Artifact (normalise f) . Built
+output f
+    | normalise f == "." = error $ "Can't output empty path " ++ show f
+    | isAbsolute f = error $ "Can't output absolute path " ++ show f
+    | otherwise = Output [f] $ flip Artifact (normalise f) . Built
 
 -- | Unique identifier of a command
 newtype Hash = Hash B.ByteString
@@ -196,11 +204,14 @@ artifactDir = stakeFile "artifact"
 hashString :: Hash -> String
 hashString (Hash h) = BC.unpack h
 
+rootPrefix :: FilePath
+rootPrefix = "../../.."
+
 data Artifact = Artifact Source FilePath
     deriving (Eq, Ord, Generic)
 
 instance Show Artifact where
-    show (Artifact External f) = show f
+    show (Artifact External f) = "external:" ++ show f
     show (Artifact (Built h) f) = hashString h ++ ":" ++ show f
 
 instance Hashable Artifact
@@ -255,7 +266,7 @@ runCommand (Output outs mk) c
 runCommandStdout :: Command -> Action String
 runCommandStdout c = do
     out <- runCommand (output stdoutPath) c
-    liftIO $ readFile $ artifactRealPath out
+    liftIO $ readFile $ pathIn out
 
 runCommand_ :: Command -> Action ()
 runCommand_ = runCommand (pure ())
@@ -282,25 +293,40 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
     unless exists $ do
         tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
                                                         (hashString h)
+        let tmpOutPath = (tmp </>) . pathOut
         liftIO $ collectInputs inps tmp
-        mapM_ (createParentIfMissing . (tmp </>)) outs
+        mapM_ (createParentIfMissing . tmpOutPath) outs
 
         out <- B.concat <$> mapM (readProg tmp) progs
-        liftIO $ B.writeFile (tmp </> stdoutPath) out
+        createParentIfMissing $ tmpOutPath stdoutPath
+        liftIO $ B.writeFile (tmpOutPath stdoutPath) out
+
         liftIO $ forM_ outs $ \f -> do
-                        exist <- Directory.doesPathExist (tmp </> f)
+                        exist <- Directory.doesPathExist (tmpOutPath f)
                         unless exist $
                             error $ "runCommand: missing output "
                                     ++ show f
+                                    ++ " in temporary directory "
+                                    ++ show tmp
         liftIO $ withSystemTempDirectory (hashString h) $ \tempOutDir -> do
             mapM_ (createParentIfMissing . (tempOutDir </>)) outs
-            mapM_ (\f -> renameAndFreezeFile (tmp </> f) (tempOutDir </> f)) outs
+            fixedOuts <- fmap concat . forM outs
+                            $ \f -> if normalise f /= "."
+                                    then return [f]
+                                    else fmap (f </>) <$> getRegularContents
+                                                                (tmpOutPath f)
+            forM_ fixedOuts
+                $ \f -> renameAndFreezeFile (tmpOutPath f)
+                                    (tempOutDir </> f)
             createParentIfMissing outDir
             -- Make the output directory appear atomically (see above).
             Directory.renameDirectory tempOutDir outDir
         -- Clean up the temp directory, but only if the above commands succeeded.
         liftIO $ removeDirectoryRecursive tmp
     return h
+
+pathOut :: FilePath -> FilePath
+pathOut f = artifactDir </> "out" </> f
 
 -- TODO: more hermetic?
 collectInputs :: Set Artifact -> FilePath -> IO ()
@@ -320,7 +346,7 @@ readProg dir (Prog p as cwd) = do
     -- hack around shake weirdness w.r.t. relative binary paths
     let p' = case p of
                 CallEnv s -> s
-                CallArtifact f -> dir </> relPath f
+                CallArtifact f -> dir </> pathIn f
                 CallTemp f -> dir </> f
     quietly $ unStdout
             <$> command
@@ -332,7 +358,7 @@ readProg dir (Prog p as cwd) = do
                     p' (map (spliceTempDir dir) as)
 
 stdoutPath :: FilePath
-stdoutPath = ".stdout"
+stdoutPath = "_stdout"
 
 defaultEnv :: [(String, String)]
 defaultEnv = [("PATH", "/usr/bin:/bin")]
@@ -343,7 +369,7 @@ spliceTempDir tmp = T.unpack . T.replace (T.pack "${TMPDIR}") (T.pack tmp) . T.p
 checkAllDistinctPaths :: Monad m => [Artifact] -> m ()
 checkAllDistinctPaths as =
     case Map.keys . Map.filter (> 1) . Map.fromListWith (+)
-            . map (\a -> (relPath a, 1 :: Integer)) $ as of
+            . map (\a -> (pathIn a, 1 :: Integer)) $ as of
         [] -> return ()
         -- TODO: nicer error, telling where they came from:
         fs -> error $ "Artifacts generated from more than one command: " ++ show fs
@@ -383,9 +409,12 @@ forFileRecursive_ act f = do
     if not isDir
         then act f
         else do
-            fs <- filter (not . specialFile) <$> Directory.getDirectoryContents f
-            mapM_ (forFileRecursive_ act . (f </>)) fs
+            getRegularContents f >>= mapM_ (forFileRecursive_ act . (f </>))
             act f
+
+getRegularContents :: FilePath -> IO [FilePath]
+getRegularContents f =
+    filter (not . specialFile) <$> Directory.getDirectoryContents f
   where
     specialFile "." = True
     specialFile ".." = True
@@ -401,8 +430,8 @@ linkArtifact _ (Artifact External f)
     | isAbsolute f = return ()
 linkArtifact dir a = do
     curDir <- getCurrentDirectory
-    let realPath = curDir </> artifactRealPath a
-    let localPath = dir </> relPath a
+    let realPath = curDir </> pathIn a
+    let localPath = dir </> pathIn a
     checkExists realPath
     createParentIfMissing localPath
     createSymbolicLink realPath localPath
@@ -411,13 +440,14 @@ linkArtifact dir a = do
     checkExists f = do
         isFile <- Directory.doesFileExist f
         isDir <- Directory.doesDirectoryExist f
-        when (not isFile && not isDir) $ error $ "linkArtifact: source does not exist: " ++ show f
+        when (not isFile && not isDir)
+            $ error $ "linkArtifact: source does not exist: " ++ show f
+                        ++ " for artifact " ++ show a
 
 
--- TODO: use permissions and/or sandboxing to make this more robust
-artifactRealPath :: Artifact -> FilePath
-artifactRealPath (Artifact External f) = f
-artifactRealPath (Artifact (Built h) f) = hashDir h </> f
+pathIn :: Artifact -> FilePath
+pathIn (Artifact External f) = f
+pathIn (Artifact (Built h) f) = hashDir h </> f
 
 replaceArtifactExtension :: Artifact -> String -> Artifact
 replaceArtifactExtension (Artifact s f) ext
@@ -425,31 +455,27 @@ replaceArtifactExtension (Artifact s f) ext
 
 readArtifact :: Artifact -> Action String
 readArtifact (Artifact External f) = readFile' f -- includes need
-readArtifact f = liftIO $ readFile $ artifactRealPath f
+readArtifact f = liftIO $ readFile $ pathIn f
 
 readArtifactB :: Artifact -> Action B.ByteString
 readArtifactB (Artifact External f) = need [f] >> liftIO (B.readFile f)
-readArtifactB f = liftIO $ B.readFile $ artifactRealPath f
+readArtifactB f = liftIO $ B.readFile $ pathIn f
 
--- NOTE: relPath may actually be an absolute path, if it was created from
--- externalFile called on an absolute path.
--- TODO: rename?
-relPath :: Artifact -> FilePath
-relPath (Artifact _ f) = f
-
+-- TODO: atomic
 writeArtifact :: MonadIO m => FilePath -> String -> m Artifact
 writeArtifact path contents = liftIO $ do
     let h = makeHash $ "writeArtifact: " ++ contents
     let dir = hashDir h
     -- TODO: remove if it already exists?  Should this be Action?
-    createParentIfMissing (dir </> path)
-    writeFile (dir </> path) contents
+    let out = dir </> path
+    createParentIfMissing out
+    writeFile out contents
     return $ Artifact (Built h) $ normalise path
 
 -- I guess we need doesFileExist?  Can we make that robust?
 doesArtifactExist :: Artifact -> Action Bool
 doesArtifactExist (Artifact External f) = Development.Shake.doesFileExist f
-doesArtifactExist f = liftIO $ Directory.doesFileExist (artifactRealPath f)
+doesArtifactExist f = liftIO $ Directory.doesFileExist (pathIn f)
 
 matchArtifactGlob :: Artifact -> FilePath -> Action [Artifact]
 -- TODO: match the behavior of Cabal
@@ -457,7 +483,7 @@ matchArtifactGlob (Artifact External f) g
     = map (Artifact External . normalise . (f </>)) <$> getDirectoryFiles f [g]
 matchArtifactGlob a@(Artifact (Built h) f) g
     = fmap (map (Artifact (Built h) . normalise . (f </>)))
-            $ liftIO $ matchDirFileGlob (artifactRealPath a) g
+            $ liftIO $ matchDirFileGlob (pathIn a) g
 
 -- TODO: merge more with above code?  How hermetic should it be?
 callArtifact :: Set Artifact -> Artifact -> [String] -> IO ()
@@ -467,6 +493,6 @@ callArtifact inps bin args = do
     -- TODO: preserve if it fails?  Make that a parameter?
     collectInputs (Set.insert bin inps) tmp
     cmd_ [Cwd tmp]
-        (tmp </> relPath bin) args
+        (tmp </> pathIn bin) args
     -- Clean up the temp directory, but only if the above commands succeeded.
     liftIO $ removeDirectoryRecursive tmp

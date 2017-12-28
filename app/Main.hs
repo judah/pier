@@ -21,6 +21,7 @@ data CommandOpt
     | CleanAll
     | Build [(PackageName, Target)]
     | Exec (PackageName, Target) [String]
+    | Which (PackageName, Target)
 type ShakeFlag = String
 
 verbosity :: Parser [ShakeFlag]
@@ -51,18 +52,24 @@ cleanAllCommand :: Parser CommandOpt
 cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser CommandOpt
-buildCommand = Build <$> some (argument (eitherReader parseTarget) (metavar "TARGET"))
+buildCommand = Build <$> some parseTarget
 
 execCommand :: Parser CommandOpt
-execCommand = Exec <$> argument (eitherReader parseTarget) (metavar "TARGET")
-                <*> many (strArgument (metavar "ARGUMENT"))
+execCommand = Exec <$> parseTarget <*> many (strArgument (metavar "ARGUMENT"))
+
+whichCommand :: Parser CommandOpt
+whichCommand = Which <$> parseTarget
+
 
 stakeCmd :: Parser CommandOpt
-stakeCmd = subparser $
-    command "clean" (info cleanCommand  (progDesc "Clean project")) <>
-    command "clean-all" (info cleanAllCommand (progDesc "Clean project & dependencies")) <>
-    command "build" (info buildCommand (progDesc "Build Project")) <>
-    command "exec" (info execCommand (progDesc "Run executable"))
+stakeCmd = subparser $ mconcat
+    [ command "clean" (cleanCommand `info` progDesc "Clean project")
+    , command "clean-all" (cleanAllCommand `info` progDesc "Clean project & dependencies")
+    , command "build" (buildCommand `info` progDesc "Build Project")
+    , command "exec" (execCommand `info` progDesc "Run executable")
+    , command "which" (whichCommand `info` progDesc
+                            "Build executable and print its location")
+    ]
 
 opts :: ParserInfo (FilePath, CommandOpt, [ShakeFlag])
 opts = info args mempty
@@ -84,13 +91,23 @@ runWithOptions (Build targets) = do
 runWithOptions (Exec (pkg, target) args) = do
     cleaning False
     action $ do
-        name <- case target of
-                    TargetExe name -> return name
-                    TargetAll -> return $ display pkg
-                    TargetAllExes -> return $ display pkg
-                    TargetLib -> error "exec can't be used with a \"lib\" target"
-        exe <- buildExecutableNamed pkg name
+        exe <- buildExeTarget pkg target
         liftIO $ callArtifact (builtExeDataFiles exe) (builtBinary exe) args
+runWithOptions (Which (pkg, target)) = do
+    cleaning False
+    action $ do
+        exe <- buildExeTarget pkg target
+        -- TODO: nicer output format.
+        putNormal $ pathIn (builtBinary exe)
+
+buildExeTarget :: PackageName -> Target -> Action BuiltExecutable
+buildExeTarget pkg target = do
+    name <- case target of
+                TargetExe name -> return name
+                TargetAll -> return $ display pkg
+                TargetAllExes -> return $ display pkg
+                TargetLib -> error "command can't be used with a \"lib\" target"
+    buildExecutableNamed pkg name
 
 main :: IO ()
 main = do
@@ -112,15 +129,17 @@ data Target
     | TargetExe String
     deriving Show
 
-parseTarget :: String -> Either String (PackageName, Target)
-parseTarget s = case splitOn ":" s of
-    [n] -> (, TargetAll) <$> parsePackageName n
-    [n, "lib"] -> (, TargetLib) <$> parsePackageName n
-    [n, "exe"] -> (, TargetAllExes) <$> parsePackageName n
-    [n, "exe", e] -> (, TargetExe e) <$> parsePackageName n
-    _ -> Left $ "Error parsing target " ++ show s
+parseTarget :: Parser (PackageName, Target)
+parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
   where
-    parsePackageName n = case simpleParse n of
+    readTarget :: String -> Either String (PackageName, Target)
+    readTarget s = case splitOn ":" s of
+        [n] -> (, TargetAll) <$> readPackageName n
+        [n, "lib"] -> (, TargetLib) <$> readPackageName n
+        [n, "exe"] -> (, TargetAllExes) <$> readPackageName n
+        [n, "exe", e] -> (, TargetExe e) <$> readPackageName n
+        _ -> Left $ "Error parsing target " ++ show s
+    readPackageName n = case simpleParse n of
         Just p -> return p
         Nothing -> Left $ "Error parsing package name " ++ show n
 

@@ -13,7 +13,7 @@ import Development.Shake.FilePath
 import System.Directory
 
 stakeDir :: FilePath
-stakeDir = ".stake"
+stakeDir = "_stake"
 
 -- TODO: newtype describing inputs/outputs:
 stakeFile :: FilePattern -> FilePattern
