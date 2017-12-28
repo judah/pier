@@ -30,7 +30,7 @@ jobs:
 
       # Run stake on some sample packages
       # Note: it currently uses the `stack.yaml` of this `stake` repo itself.
-      - run: $(stack exec which stake) build happy alex lens pandoc language-c stake -j 2
+      - run: $(stack exec which stake) build lens pandoc language-c stake -j 2
       - run: $(stack exec which stake) exec hlint $PWD/src
 
       - save_cache:
