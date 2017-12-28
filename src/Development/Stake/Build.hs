@@ -283,17 +283,20 @@ buildExecutable desc packageSourceDir exe = do
                             True -> return fullPath
                             False -> findM $ filePathToModule $ modulePath exe
     moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
+    let cFiles = map (packageSourceDir />) $ cSources bi
+    cIncludes <- collectCIncludes desc bi (packageSourceDir />)
     -- TODO: c includes
     bin <- runCommand (output $ exeName exe)
         $ message (display (package desc) ++ ": building executable "
                     ++ exeName exe)
         <> inputList moduleBootFiles
+        <> inputList cIncludes
         <> ghcCommand ghc deps bi packageSourceDir
                 [ "-o", pathOut (exeName exe)
                 , "-hidir", outputPrefix </> "hi"
                 , "-odir", outputPrefix </> "o"
                 ]
-                (addIfMissing mainFile otherModuleFiles)
+                (addIfMissing mainFile otherModuleFiles ++ cFiles)
     return BuiltExecutable
         { builtBinary = bin
         , builtExeDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
