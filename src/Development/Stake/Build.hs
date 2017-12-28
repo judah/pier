@@ -220,7 +220,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                 , transitiveLibFiles = libFiles
                 -- TODO:
                 , transitiveIncludeDirs = Set.empty
-                , transitiveDataFiles = Set.singleton datas
+                , transitiveDataFiles = maybe Set.empty Set.singleton datas
                 }
 
 arParams :: String
@@ -298,7 +298,8 @@ buildExecutable desc packageSourceDir exe = do
                 (addIfMissing mainFile otherModuleFiles)
     return BuiltExecutable
         { builtBinary = bin
-        , builtExeDataFiles = Set.insert datas (transitiveDataFiles transDeps)
+        , builtExeDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
+                                    datas
         }
   where
     pathsMod = fromString $ "Paths_" ++ display (packageName desc)
@@ -422,7 +423,7 @@ findModule
     -> PackageDescription
     -> BuildInfo
     -> Set Artifact -- ^ Transitive C include dirs
-    -> Artifact     -- ^ data dir
+    -> Maybe Artifact     -- ^ data dir
     -> [Artifact]   -- ^ Source directory to check
     -> ModuleName
     -> Action Artifact
@@ -435,7 +436,7 @@ findModule ghc desc bi cIncludeDirs datas paths m = do
         Just f -> return f
 
 genPathsModule
-    :: ModuleName -> PackageIdentifier -> Artifact -> MaybeT Action Artifact
+    :: ModuleName -> PackageIdentifier -> Maybe Artifact -> MaybeT Action Artifact
 genPathsModule m pkg datas = do
     guard $ m == pathsModule
     lift $ writeArtifact ("paths" </> display m <.> "hs") $ unlines
@@ -450,12 +451,13 @@ genPathsModule m pkg datas = do
         , "getDataFileName :: FilePath -> IO FilePath"
         , "getDataFileName f = (\\d -> d ++ \"/\" ++ f) <$> getDataDir"
         , "getDataDir :: IO FilePath"
-        , "getDataDir = return " ++ show (pathIn datas)
+        , "getDataDir = " ++ maybe err (("return " ++) . show . pathIn) datas
         ]
   where
     pathsModule = fromString $ "Paths_" ++ map fixHyphen (display $ pkgName pkg)
     fixHyphen '-' = '_'
     fixHyphen c = c
+    err = "error " ++ show ("Missing data files from package " ++ display pkg)
 
 
 search
@@ -542,23 +544,26 @@ findIncludeInputs pkgDir bi = filterM doesArtifactExist candidates
                  ]
 
 collectDataFiles
-    :: InstalledGhc -> PackageDescription -> Artifact -> Action Artifact
+    :: InstalledGhc -> PackageDescription -> Artifact -> Action (Maybe Artifact)
 collectDataFiles ghc desc dir = case display (packageName desc) of
-    "happy" -> collectHappyDataFiles ghc dir
-    "alex" -> collectAlexDataFiles ghc dir
+    "happy" -> Just <$> collectHappyDataFiles ghc dir
+    "alex" -> Just <$> collectAlexDataFiles ghc dir
     _ -> collectPlainDataFiles desc dir
 
 -- TODO: should we filter out packages without data-files?
 -- Or short-cut it somewhere else?
 collectPlainDataFiles
-    :: PackageDescription -> Artifact -> Action Artifact
+    :: PackageDescription -> Artifact -> Action (Maybe Artifact)
 collectPlainDataFiles desc dir = do
     let inDir = dir /> dataDir desc
     let out = "data-files"
-    runCommand (output out)
-        $ prog "mkdir" ["-p", pathOut out]
-        <> foldMap (\f -> copyArtifact (inDir /> f) (out </> f))
-            (dataFiles desc)
+    if null (dataFiles desc)
+        then return Nothing
+        else fmap Just
+            . runCommand (output out)
+            $ prog "mkdir" ["-p", pathOut out]
+                <> foldMap (\f -> copyArtifact (inDir /> f) (out </> f))
+                    (dataFiles desc)
 
 cppVersion :: Version -> String
 cppVersion v = case versionBranch v of

@@ -212,7 +212,7 @@ data Artifact = Artifact Source FilePath
     deriving (Eq, Ord, Generic)
 
 instance Show Artifact where
-    show (Artifact External f) = show f
+    show (Artifact External f) = "external:" ++ show f
     show (Artifact (Built h) f) = hashString h ++ ":" ++ show f
 
 instance Hashable Artifact
@@ -442,7 +442,9 @@ linkArtifact dir a = do
     checkExists f = do
         isFile <- Directory.doesFileExist f
         isDir <- Directory.doesDirectoryExist f
-        when (not isFile && not isDir) $ error $ "linkArtifact: source does not exist: " ++ show f
+        when (not isFile && not isDir)
+            $ error $ "linkArtifact: source does not exist: " ++ show f
+                        ++ " for artifact " ++ show a
 
 
 pathIn :: Artifact -> FilePath
@@ -461,13 +463,15 @@ readArtifactB :: Artifact -> Action B.ByteString
 readArtifactB (Artifact External f) = need [f] >> liftIO (B.readFile f)
 readArtifactB f = liftIO $ B.readFile $ pathIn f
 
+-- TODO: atomic
 writeArtifact :: MonadIO m => FilePath -> String -> m Artifact
 writeArtifact path contents = liftIO $ do
     let h = makeHash $ "writeArtifact: " ++ contents
     let dir = hashDir h
     -- TODO: remove if it already exists?  Should this be Action?
-    createParentIfMissing (dir </> path)
-    writeFile (dir </> path) contents
+    let out = dir </> path
+    createParentIfMissing out
+    writeFile out contents
     return $ Artifact (Built h) $ normalise path
 
 -- I guess we need doesFileExist?  Can we make that robust?

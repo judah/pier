@@ -278,13 +278,13 @@ makeRelativeGlobalDb ghc = do
             let desc' =
                     T.unpack
                     . T.replace (T.pack tempRoot)
-                        (T.pack $ "${pkgroot}" </> rootPrefix
+                        (T.pack $ "${pkgroot}/.." </> rootPrefix
                                     </> pathIn (ghcInstallDir ghc))
                     . T.pack
                     $ desc
             writeArtifact (pkg ++ ".conf") desc'
     confs <- mapM makePkgConf builtinPackages
-    let globalRelativePackageDb = "package-fixed.conf.d"
+    let globalRelativePackageDb = "global-packages/package-fixed.conf.d"
     fixedDb <- runCommand (output globalRelativePackageDb)
         $ progA (ghcBinDir ghc /> "ghc-pkg") ["init", pathOut globalRelativePackageDb]
             <> foldMap (\a -> progA (ghcBinDir ghc /> "ghc-pkg")
