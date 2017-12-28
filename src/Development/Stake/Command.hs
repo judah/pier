@@ -37,7 +37,7 @@ module Development.Stake.Command
     ) where
 
 import Crypto.Hash.SHA256
-import Control.Monad (forM_, forM, when, unless)
+import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as B
 import Data.ByteString.Base64
@@ -312,17 +312,17 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
                                     ++ show tmp
         liftIO $ withSystemTempDirectory (hashString h) $ \tempOutDir -> do
             mapM_ (createParentIfMissing . (tempOutDir </>)) outs
-            fixedOuts <- fmap concat . forM outs
-                            $ \f -> if normalise f /= "."
-                                    then return [f]
-                                    else fmap (f </>) <$> getRegularContents
-                                                                (tmpOutPath f)
-            forM_ fixedOuts
-                $ \f -> renameAndFreezeFile (tmpOutPath f)
+            forM_ outs
+                $ \f -> renamePath (tmpOutPath f)
                                     (tempOutDir </> f)
+            getRegularContents tempOutDir
+                >>= mapM_ (forFileRecursive_ freezePath . (tempOutDir </>))
             createParentIfMissing outDir
             -- Make the output directory appear atomically (see above).
             Directory.renameDirectory tempOutDir outDir
+            -- Freeze the actual directory after doing the move, which requires
+            -- write permissions.
+            freezePath outDir
         -- Clean up the temp directory, but only if the above commands succeeded.
         liftIO $ removeDirectoryRecursive tmp
     return h
@@ -390,11 +390,8 @@ dedupArtifacts = loop . Set.toAscList
     loop (f:fs) = f : loop fs
     loop [] = []
 
-renameAndFreezeFile :: FilePath -> FilePath -> IO ()
-renameAndFreezeFile src dest = do
-    renamePath src dest
-    let freeze f = getPermissions f >>= setPermissions f . setOwnerWritable False
-    forFileRecursive_ freeze dest
+freezePath :: FilePath -> IO ()
+freezePath f = getPermissions f >>= setPermissions f . setOwnerWritable False
 
 -- | Make all artifacts user-writable, so they can be deleted by `clean-all`.
 unfreezeArtifacts :: IO ()
@@ -423,10 +420,6 @@ getRegularContents f =
     specialFile _ = False
 
 -- Symlink the artifact into the given destination directory.
--- If the artifact is itself a directory, make a separate symlink
--- for each file (similar to `lndir`).
--- TODO: this could stand to be optimized; it takes about 10% of the time for
--- building "lens" (not including downloads).
 linkArtifact :: FilePath -> Artifact -> IO ()
 linkArtifact _ (Artifact External f)
     | isAbsolute f = return ()
