@@ -49,8 +49,8 @@ configurePackage plan packageSourceDir = do
         Just Configure -> do
             let configuredDir = name
             configuredPackage <- runCommand (output configuredDir)
-                $ copyArtifact packageSourceDir configuredDir
-                <> withCwd (pathOut configuredDir) (progTemp (pathOut $ configuredDir </> "configure") [])
+                $ shadow packageSourceDir configuredDir
+                <> withCwd (pathOut configuredDir) (progTemp (configuredDir </> "configure") [])
             let buildInfoFile = configuredPackage />
                                     (name <.> "buildinfo")
             buildInfoExists <- doesArtifactExist buildInfoFile

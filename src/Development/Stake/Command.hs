@@ -24,7 +24,6 @@ module Development.Stake.Command
     , (/>)
     , pathIn
     , pathOut
-    , rootPrefix
     , replaceArtifactExtension
     , readArtifact
     , readArtifactB
@@ -32,8 +31,9 @@ module Development.Stake.Command
     , writeArtifact
     , matchArtifactGlob
     , unfreezeArtifacts
-    , copyArtifact
+    , shadow
     , callArtifact
+    , createDirectoryA
     ) where
 
 import Crypto.Hash.SHA256
@@ -92,12 +92,14 @@ data Prog
            , progCwd :: FilePath  -- relative to the root of the sandbox
            }
     | Message String
+    | Shadow Artifact FilePath
     deriving (Typeable, Eq, Generic)
 instance Hashable Prog
 instance Binary Prog
 instance NFData Prog
 
 instance Show Prog where
+    show (Shadow f g) = "(Shadow " ++ show f ++ " " ++ show g ++ ")"
     show (Message s) = "(Message " ++ show s ++ ")"
     show p@Prog{} = "(" ++ maybeCd
                 ++ showCommandForUser (showCall $ progCall p) (progArgs p) ++ ")"
@@ -126,7 +128,6 @@ prog p as = Command [Prog (CallEnv p) as "."] Set.empty
 progA :: Artifact -> [String] -> Command
 progA p as = Command [Prog (CallArtifact p) as "."] (Set.singleton p)
 
--- TODO: should this be pathOut by default?
 progTemp :: FilePath -> [String] -> Command
 progTemp p as = Command [Prog (CallTemp p) as "."] Set.empty
 
@@ -150,20 +151,17 @@ inputList = inputs . Set.fromList
 inputs :: Set Artifact -> Command
 inputs = Command []
 
--- | TODO: figure out more light-weight ways of achieving the same effect
-copyArtifact :: Artifact -> FilePath -> Command
-copyArtifact src dest
-    | isAbsolute dest
-        = error $ "copyArtifact: requires relative destination, found " ++ show dest
-    | otherwise =   prog "mkdir" ["-p", takeDirectory dest']
-                    -- TODO: first remove if it already exists?
-                    <> prog "cp" ["-pRL", pathIn src, dest']
-                    -- Unfreeze the files so they can be modified by later calls within
-                    -- the same `runCommand`
-                    <> prog "chmod" ["-R", "u+w", dest']
-                    <> input src
-  where
-    dest' = pathOut dest
+-- | Make a "shadow" copy of the given input artifact's by create a symlink of
+-- this artifact (if it is a file) or of each sub-file (transitively, if it is
+-- a directory).
+--
+-- The result may be captured as output, for example when grouping multiple outputs
+-- of separate commands into a common directory structure.
+shadow :: Artifact -> FilePath -> Command
+shadow a f
+    | isAbsolute f = error $ "shadowArtifact: need relative destination, found "
+                            ++ show f
+    | otherwise = Command [Shadow a f] Set.empty
 
 data Output a = Output [FilePath] (Hash -> a)
 
@@ -203,9 +201,6 @@ artifactDir = stakeFile "artifact"
 
 hashString :: Hash -> String
 hashString (Hash h) = BC.unpack h
-
-rootPrefix :: FilePath
-rootPrefix = "../../.."
 
 data Artifact = Artifact Source FilePath
     deriving (Eq, Ord, Generic)
@@ -354,7 +349,7 @@ readProg dir (Prog p as cwd) = do
     let p' = case p of
                 CallEnv s -> s
                 CallArtifact f -> dir </> pathIn f
-                CallTemp f -> dir </> f
+                CallTemp f -> dir </> pathOut f
     quietly $ unStdout
             <$> command
                     [ Cwd $ dir </> cwd
@@ -363,6 +358,21 @@ readProg dir (Prog p as cwd) = do
                     , EchoStderr False
                     ]
                     p' (map (spliceTempDir dir) as)
+readProg dir (Shadow a0 f0) = liftIO $ do
+    let out = dir </> pathOut f0
+    createParentIfMissing out
+    rootDir <- Directory.getCurrentDirectory
+    deepLink (rootDir </> pathIn a0) out
+    return B.empty
+  where
+    deepLink a f = do
+        isDir <- Directory.doesDirectoryExist a
+        if isDir
+            then do
+                    Directory.createDirectoryIfMissing False f
+                    cs <- getRegularContents a
+                    mapM_ (\c -> deepLink (a </> c) (f </> c)) cs
+            else createSymbolicLink a f
 
 stdoutPath :: FilePath
 stdoutPath = "_stdout"
@@ -404,7 +414,9 @@ unfreezeArtifacts = do
     exists <- Directory.doesDirectoryExist artifactDir
     when exists $ forFileRecursive_ unfreeze artifactDir
   where
-    unfreeze f = getPermissions f >>= setPermissions f . setOwnerWritable True
+    unfreeze f = do
+        sym <- pathIsSymbolicLink f
+        unless sym $ getPermissions f >>= setPermissions f . setOwnerWritable True
 
 -- TODO: don't loop on symlinks, and be more efficient?
 forFileRecursive_ :: (FilePath -> IO ()) -> FilePath -> IO ()
@@ -499,3 +511,6 @@ callArtifact inps bin args = do
         (tmp </> pathIn bin) args
     -- Clean up the temp directory, but only if the above commands succeeded.
     liftIO $ removeDirectoryRecursive tmp
+
+createDirectoryA :: FilePath -> Command
+createDirectoryA f = prog "mkdir" ["-p", pathOut f]

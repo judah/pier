@@ -185,8 +185,8 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                         modules
     moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
     cIncludes <- collectCIncludes desc lbi pkgDir
-    (maybeLib, libFiles)  <- if not shouldBuildLib
-            then return (Nothing, Set.empty)
+    maybeLib <- if not shouldBuildLib
+            then return Nothing
             else do
                 (hiDir', oDir') <- runCommand
                     (liftA2 (,) (output hiDir) (output oDir))
@@ -216,14 +216,13 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                     <> ghcCommand ghc deps lbi confd
                         ["-shared", "-dynamic", "-o", pathOut dynLibFile]
                         (dynModuleObjs ++ cFiles)
-                return (Just (libName, lib, libArchive, dynLib, hiDir'),
-                            Set.fromList [libArchive, dynLib, hiDir'])
-    pkgDb <- registerPackage ghc (package desc) lbi maybeLib
-                deps libFiles
+                return $ Just (libName, lib, libArchive, dynLib, hiDir')
+    (pkgDb, libFiles) <- registerPackage ghc (package desc) lbi maybeLib
+                deps
     return $ BuiltLibrary (package desc)
             $ transDeps <> TransitiveDeps
                 { transitiveDBs = Set.singleton pkgDb
-                , transitiveLibFiles = libFiles
+                , transitiveLibFiles = Set.singleton libFiles
                 -- TODO:
                 , transitiveIncludeDirs = Set.empty
                 , transitiveDataFiles = maybe Set.empty Set.singleton datas
@@ -385,11 +384,24 @@ registerPackage
              , Artifact -- hi
              )
     -> BuiltDeps
-    -> Set Artifact
-    -> Action Artifact
+    -> Action (Artifact, Artifact)
 registerPackage ghc pkg bi maybeLib (BuiltDeps depPkgs transDeps)
-    libFiles
     = do
+    let pre = "files"
+    let (collectLibInputs, libDesc) = case maybeLib of
+            Nothing -> (createDirectoryA pre, [])
+            Just (libName, lib, libA, dynLibA, hi) ->
+                ( shadow libA (pre </> takeFileName (pathIn libA))
+                    <> shadow dynLibA (pre </> takeFileName (pathIn dynLibA))
+                    <> shadow hi (pre </> "hi")
+                , [ "hs-libraries: " ++ libName
+                  , "library-dirs: ${pkgroot}" </> pre
+                  , "dynamic-library-dirs: ${pkgroot}" </> pre
+                  , "import-dirs: ${pkgroot}" </> pre </> "hi"
+                  , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
+                  , "hidden-modules: " ++ unwords (map display $ otherModules bi)
+                  ]
+                )
     spec <- writeArtifact "spec" $ unlines $
         [ "name: " ++ display (packageName pkg)
         , "version: " ++ display (packageVersion pkg)
@@ -398,29 +410,19 @@ registerPackage ghc pkg bi maybeLib (BuiltDeps depPkgs transDeps)
         , "extra-libraries: " ++ unwords (extraLibs bi)
         , "depends: " ++ unwords (map display depPkgs)
         ]
-        ++ case maybeLib of
-            Nothing -> []
-            Just (libName, lib, libA, dynLibA, hi) -> let
-                pre = "${pkgroot}" </> rootPrefix
-                in [ "hs-libraries: " ++ libName
-                   , "library-dirs: " ++ pre </> takeDirectory (pathIn libA)
-                   , "dynamic-library-dirs: " ++ pre </> takeDirectory (pathIn dynLibA)
-                   , "import-dirs: " ++ pre </> pathIn hi
-                   , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
-                   , "hidden-modules: " ++ unwords (map display $ otherModules bi)
-                   ]
-    let relPkgDb = "db"
-    runCommand (output relPkgDb)
-        $ ghcPkgProg ghc ["init", pathOut relPkgDb]
+        ++ libDesc
+    let db = "db"
+    runCommand (liftA2 (,) (output db) (output pre))
+        $ collectLibInputs
+            <> ghcPkgProg ghc ["init", pathOut db]
             <> ghcPkgProg ghc
                     (["-v0"]
                     ++ [ "--package-db=" ++ pathIn f
                        | f <-  Set.toList $ transitiveDBs transDeps
                        ]
-                    ++ ["--package-db", pathOut relPkgDb, "register",
+                    ++ ["--package-db", pathOut db, "register",
                                pathIn spec])
             <> input spec
-            <> inputs libFiles
             <> inputs (transitiveDBs transDeps)
 
 
@@ -574,7 +576,7 @@ collectPlainDataFiles desc dir = do
         else fmap Just
             . runCommand (output out)
             $ prog "mkdir" ["-p", pathOut out]
-                <> foldMap (\f -> copyArtifact (inDir /> f) (out </> f))
+                <> foldMap (\f -> shadow (inDir /> f) (out </> f))
                     (dataFiles desc)
 
 cppVersion :: Version -> String
