@@ -315,14 +315,7 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
             forM_ outs
                 $ \f -> renamePath (tmpOutPath f)
                                     (tempOutDir </> f)
-            getRegularContents tempOutDir
-                >>= mapM_ (forFileRecursive_ freezePath . (tempOutDir </>))
-            createParentIfMissing outDir
-            -- Make the output directory appear atomically (see above).
-            Directory.renameDirectory tempOutDir outDir
-            -- Freeze the actual directory after doing the move, which requires
-            -- write permissions.
-            freezePath outDir
+            finalizeFrozen tempOutDir outDir
         -- Clean up the temp directory, but only if the above commands succeeded.
         liftIO $ removeDirectoryRecursive tmp
     return h
@@ -336,6 +329,18 @@ collectInputs inps tmp = do
     let inps' = dedupArtifacts inps
     checkAllDistinctPaths inps'
     liftIO $ mapM_ (linkArtifact tmp) inps'
+
+-- Move the source directory to the destination and make it read-only.
+finalizeFrozen :: FilePath -> FilePath -> IO ()
+finalizeFrozen src dest = do
+    getRegularContents src
+        >>= mapM_ (forFileRecursive_ freezePath . (src </>))
+    createParentIfMissing dest
+    -- Make the output directory appear atomically (see above).
+    Directory.renameDirectory src dest
+    -- Freeze the actual directory after doing the move, which requires
+    -- write permissions.
+    freezePath dest
 
 -- Call a process inside the given directory and capture its stdout.
 -- TODO: more flexibility around the env vars
@@ -461,10 +466,13 @@ writeArtifact :: MonadIO m => FilePath -> String -> m Artifact
 writeArtifact path contents = liftIO $ do
     let h = makeHash $ "writeArtifact: " ++ contents
     let dir = hashDir h
-    -- TODO: remove if it already exists?  Should this be Action?
-    let out = dir </> path
-    createParentIfMissing out
-    writeFile out contents
+    exists <- Directory.doesDirectoryExist dir
+    unless exists $ withSystemTempDirectory (hashString h)
+                        $ \tempOutDir -> do
+        let out = tempOutDir </> path
+        createParentIfMissing out
+        writeFile out contents
+        finalizeFrozen tempOutDir dir
     return $ Artifact (Built h) $ normalise path
 
 -- I guess we need doesFileExist?  Can we make that robust?
