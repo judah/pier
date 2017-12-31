@@ -29,6 +29,7 @@ import Development.Stake.Package
 import Development.Stake.Stackage
 import Development.Stake.Persistent
 import Distribution.ModuleName
+import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
 import Distribution.Package
 import Distribution.PackageDescription
 import qualified Distribution.InstalledPackageInfo as IP
@@ -104,27 +105,33 @@ askBuiltDeps pkgs = do
 -- TODO: don't copy everything if configuring a local package?  Or at least
 -- treat deps less coarsely?
 getConfiguredPackage
-    :: PackageName -> Action (Either PackageId (PackageDescription, Artifact))
+    :: PackageName -> Action (Either PackageId ConfiguredPkg)
 getConfiguredPackage p = do
     conf <- askConfig
     case resolvePackage conf p of
         Builtin pid -> return $ Left pid
         Hackage pid -> do
             dir <- getPackageSourceDir pid
-            Right <$> configurePackage (plan conf) dir
-        Local dir -> Right <$> configurePackage (plan conf) dir
+            Right <$> getConfigured conf dir
+        Local dir _ -> Right <$> getConfigured conf dir
+  where
+    getConfigured :: Config -> Artifact -> Action ConfiguredPkg
+    getConfigured conf dir = do
+        (desc, dir') <- configurePackage (plan conf) dir
+        macros <- genCabalMacros conf desc
+        return $ ConfiguredPkg desc dir' macros
 
 
 buildLibrary :: BuiltLibraryR -> Action (Maybe BuiltLibrary)
 buildLibrary (BuiltLibraryR pkg) =
     getConfiguredPackage pkg >>= \case
         Left p -> Just <$> getBuiltinLib p
-        Right (desc, dir)
-            | Just lib <- library desc
+        Right confd
+            | Just lib <- library (confdDesc confd)
             , let bi = libBuildInfo lib
             , buildable bi -> Just <$> do
-                deps <- askBuiltDeps [n | Dependency n _ <- targetBuildDepends bi]
-                buildLibraryFromDesc deps dir desc lib
+                deps <- askBuiltDeps $ targetDepNames bi
+                buildLibraryFromDesc deps confd lib
             | otherwise -> return Nothing
 
 getBuiltinLib :: PackageId -> Action BuiltLibrary
@@ -150,11 +157,12 @@ getBuiltinLib p = do
 
 buildLibraryFromDesc
     :: BuiltDeps
-    -> Artifact
-    -> PackageDescription
+    -> ConfiguredPkg
     -> Library
     -> Action BuiltLibrary
-buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
+buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
+    let packageSourceDir = confdSourceDir confd
+    let desc = confdDesc confd
     conf <- askConfig
     let ghc = configGhc conf
     let lbi = libBuildInfo lib
@@ -184,7 +192,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                     (liftA2 (,) (output hiDir) (output oDir))
                     $ message (display (package desc) ++ ": building library")
                     <> inputList (moduleBootFiles ++ cIncludes)
-                    <> ghcCommand ghc deps lbi packageSourceDir
+                    <> ghcCommand ghc deps lbi confd
                             [ "-this-unit-id", display $ package desc
                             , "-hidir", pathOut hiDir
                             , "-odir", pathOut oDir
@@ -205,7 +213,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) packageSourceDir desc lib = do
                 dynLib <- runCommand (output dynLibFile)
                     $ inputList cIncludes
                     <> message (display (package desc) ++ ": linking dynamic library")
-                    <> ghcCommand ghc deps lbi packageSourceDir
+                    <> ghcCommand ghc deps lbi confd
                         ["-shared", "-dynamic", "-o", pathOut dynLibFile]
                         (dynModuleObjs ++ cFiles)
                 return (Just (libName, lib, libArchive, dynLib, hiDir'),
@@ -241,32 +249,33 @@ progExe exe args = progA (builtBinary exe) args
 buildExecutables :: PackageName -> Action (Map.Map String BuiltExecutable)
 buildExecutables p = getConfiguredPackage p >>= \case
     Left _ -> return Map.empty
-    Right (desc, dir) ->
+    Right confd ->
         fmap Map.fromList
-            . mapM (\e -> (exeName e,) <$> buildExecutable desc dir e)
+            . mapM (\e -> (exeName e,) <$> buildExecutable confd e)
             . filter (buildable . buildInfo)
-            $ executables desc
+            $ executables (confdDesc confd)
 
 -- TODO: error if not buildable?
 buildExecutableNamed :: PackageName -> String -> Action BuiltExecutable
 buildExecutableNamed p e = getConfiguredPackage p >>= \case
     Left pid -> error $ "Built-in package " ++ display pid
                         ++ " has no executables"
-    Right (desc, dir)
-        | Just exe <- find ((== e) . exeName) (executables desc)
-            -> buildExecutable desc dir exe
-        | otherwise -> error $ "Package " ++ display (package desc)
+    Right confd
+        | Just exe <- find ((== e) . exeName) (executables $ confdDesc confd)
+            -> buildExecutable confd exe
+        | otherwise -> error $ "Package " ++ display (packageId confd)
                             ++ " has no executable named " ++ e
 
 buildExecutable
-    :: PackageDescription
-    -> Artifact
+    :: ConfiguredPkg
     -> Executable
     -> Action BuiltExecutable
-buildExecutable desc packageSourceDir exe = do
+buildExecutable confd exe = do
+    let desc = confdDesc confd
+    let packageSourceDir = confdSourceDir confd
     let bi = buildInfo exe
     deps@(BuiltDeps _ transDeps)
-        <- askBuiltDeps [n | Dependency n _ <- targetBuildDepends bi]
+        <- askBuiltDeps $ targetDepNames bi
     conf <- askConfig
     let ghc = configGhc conf
     let outputPrefix = display (packageName $ package desc)
@@ -285,13 +294,12 @@ buildExecutable desc packageSourceDir exe = do
     moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
     let cFiles = map (packageSourceDir />) $ cSources bi
     cIncludes <- collectCIncludes desc bi (packageSourceDir />)
-    -- TODO: c includes
     bin <- runCommand (output $ exeName exe)
         $ message (display (package desc) ++ ": building executable "
                     ++ exeName exe)
         <> inputList moduleBootFiles
         <> inputList cIncludes
-        <> ghcCommand ghc deps bi packageSourceDir
+        <> ghcCommand ghc deps bi confd
                 [ "-o", pathOut (exeName exe)
                 , "-hidir", outputPrefix </> "hi"
                 , "-odir", outputPrefix </> "o"
@@ -303,7 +311,7 @@ buildExecutable desc packageSourceDir exe = do
                                     datas
         }
   where
-    pathsMod = fromString $ "Paths_" ++ display (packageName desc)
+    pathsMod = fromString $ "Paths_" ++ display (packageName confd)
     addIfMissing m ms
         | m `elem` ms = ms
         | otherwise = m : ms
@@ -317,17 +325,19 @@ ghcCommand
     :: InstalledGhc
     -> BuiltDeps
     -> BuildInfo
-    -> Artifact
+    -> ConfiguredPkg
     -> [String]
     -> [Artifact]
     -> Command
-ghcCommand ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir
+ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd
     extraArgs ghcInputs
         = ghcProg ghc (args ++ map pathIn ghcInputs)
             <> inputs (transitiveDBs transDeps)
             <> inputs (transitiveLibFiles transDeps)
             <> inputList ghcInputs
+            <> input (confdMacros confd)
   where
+    packageSourceDir = confdSourceDir confd
     pkgDir = (packageSourceDir />)
     extensions =
         display (fromMaybe Haskell98 $ defaultLanguage bi)
@@ -350,6 +360,7 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi packageSourceDir
         ++ map ("-X" ++) extensions
         ++ concat [opts | (GHC,opts) <- options bi]
         ++ map ("-optP" ++) (cppOptions bi)
+        ++ ["-optP-include", "-optP" ++ pathIn (confdMacros confd)]
         -- TODO: configurable
         ++ ["-O0"]
         -- TODO: enable warnings for local builds
@@ -573,3 +584,34 @@ cppVersion v = case versionBranch v of
 
 exists :: Artifact -> MaybeT Action ()
 exists f = lift (doesArtifactExist f) >>= guard
+
+data ConfiguredPkg = ConfiguredPkg
+    { confdDesc :: PackageDescription
+    , confdSourceDir :: Artifact
+    , confdMacros :: Artifact
+        -- Provides Cabal macros like VERSION_*
+    }
+
+instance Package ConfiguredPkg where
+    packageId = packageId . confdDesc
+
+-- For compatibility with Cabal, we generate a single macros file for the
+-- entire package, rather than separately for the library, executables, etc.
+-- For example, `pandoc-1.19.2.1`'s `pandoc` executable references
+-- `VERSION_texmath` in `pandoc.hs`, despite not directly depending on the
+-- `texmath` package.
+genCabalMacros :: Config -> PackageDescription -> Action Artifact
+genCabalMacros conf desc = do
+    let allBis = [libBuildInfo l | Just l <- [library desc]]
+                    ++ map buildInfo (executables desc)
+                    ++ map testBuildInfo (testSuites desc)
+                    ++ map benchmarkBuildInfo (benchmarks desc)
+    let packageNames = Set.toList . Set.fromList . concatMap targetDepNames
+                            $ allBis
+    writeArtifact "macros.h"
+        . generatePackageVersionMacros
+        . map (resolvedPackageId . resolvePackage conf)
+        $ packageNames
+
+targetDepNames :: BuildInfo -> [PackageName]
+targetDepNames bi = [n | Dependency n _ <- targetBuildDepends bi]

@@ -1,6 +1,13 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Development.Stake.Config where
+module Development.Stake.Config
+    ( configRules
+    , askConfig
+    , Config(..)
+    , Resolved(..)
+    , resolvePackage
+    , resolvedPackageId
+    ) where
 
 import Control.Exception (throw)
 import Control.Monad (void)
@@ -67,7 +74,7 @@ type instance RuleResult StackYamlQ = StackYaml
 data Config = Config
     { plan :: BuildPlan
     , configExtraDeps :: HM.HashMap PackageName Version
-    , localPackages :: HM.HashMap PackageName Artifact
+    , localPackages :: HM.HashMap PackageName (Artifact, Version)
     , configGhc :: InstalledGhc
     } deriving Show
 
@@ -81,9 +88,9 @@ askConfig = do
     -- We do it again later so the full PackageDescription
     -- doesn't need to get saved in the cache.
     pkgDescs <- mapM (\f -> do
-                                let a = externalFile f
-                                pkg <- parseCabalFileInDir a
-                                return (packageName pkg, a))
+                        let a = externalFile f
+                        pkg <- parseCabalFileInDir a
+                        return (packageName pkg, (a, packageVersion pkg)))
                     $ packages yaml
     return Config
         { plan = p
@@ -97,7 +104,7 @@ askConfig = do
 data Resolved
     = Builtin PackageId
     | Hackage PackageId
-    | Local Artifact
+    | Local Artifact PackageId
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable Resolved
 instance Binary Resolved
@@ -109,11 +116,17 @@ resolvePackage conf n
     -- core packages can't be overridden.  (TODO: is this right?)
     | Just v <- HM.lookup n (corePackageVersions $ plan conf)
                 = Builtin $ PackageIdentifier n v
-    | Just a <- HM.lookup n (localPackages conf)
-                = Local a
+    | Just (a, v) <- HM.lookup n (localPackages conf)
+                = Local a $ PackageIdentifier n v
     -- Extra-deps override packages in the build plan:
     | Just v <- HM.lookup n (configExtraDeps conf)
                 = Hackage $ PackageIdentifier n v
     | Just v <- HM.lookup n (packageVersions $ plan conf)
                 = Hackage $ PackageIdentifier n v
     | otherwise = error $ "Couldn't find package " ++ show n
+
+
+resolvedPackageId :: Resolved -> PackageIdentifier
+resolvedPackageId (Builtin p) = p
+resolvedPackageId (Hackage p) = p
+resolvedPackageId (Local _ p) = p
