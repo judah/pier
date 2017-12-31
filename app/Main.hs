@@ -4,6 +4,7 @@ import Control.Monad (void)
 import Data.List.Split (splitOn)
 import Data.Monoid ((<>))
 import Development.Shake hiding (command)
+import Development.Shake.FilePath (splitFileName)
 import Development.Stake.Build
 import Development.Stake.Config
 import Development.Stake.Core
@@ -14,6 +15,7 @@ import Development.Stake.Stackage
 import Distribution.Package
 import Distribution.Text (display, simpleParse)
 import Options.Applicative hiding (action)
+import System.Directory
 import System.Environment
 
 data CommandOpt
@@ -112,13 +114,18 @@ buildExeTarget pkg target = do
 main :: IO ()
 main = do
     (stackYamlPath, cmdOpt, flags) <- execParser opts
+    -- Run relative to the `stack.yaml` file.
+    -- TODO: don't rely on setCurrentDirectory; use absolute paths everywhere
+    -- in the code.
+    let (root, stackYamlFile) = splitFileName stackYamlPath
+    setCurrentDirectory root
     withArgs flags $ runStake $ do
         buildPlanRules
         buildPackageRules
         commandRules
         downloadRules
         installGhcRules
-        configRules stackYamlPath
+        configRules stackYamlFile
         runWithOptions cmdOpt
 
 -- TODO: move into Build.hs

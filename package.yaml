@@ -11,6 +11,7 @@ github: judah/stake
 dependencies:
   - base
   - Cabal
+  - directory
   - shake
 
 default-extensions:
@@ -34,7 +35,6 @@ library:
     - bytestring
     - containers
     - cryptohash-sha256
-    - directory
     - hashable
     - lens
     - process
