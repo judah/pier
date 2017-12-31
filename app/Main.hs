@@ -1,10 +1,11 @@
+{-# LANGUAGE MultiWayIf #-}
 module Main (main) where
 
 import Control.Monad (void)
 import Data.List.Split (splitOn)
 import Data.Monoid ((<>))
 import Development.Shake hiding (command)
-import Development.Shake.FilePath (splitFileName)
+import Development.Shake.FilePath ((</>), takeDirectory, splitFileName)
 import Development.Stake.Build
 import Development.Stake.Config
 import Development.Stake.Core
@@ -15,7 +16,7 @@ import Development.Stake.Stackage
 import Distribution.Package
 import Distribution.Text (display, simpleParse)
 import Options.Applicative hiding (action)
-import System.Directory
+import System.Directory as Directory
 import System.Environment
 
 data CommandOpt
@@ -73,13 +74,25 @@ stakeCmd = subparser $ mconcat
                             "Build executable and print its location")
     ]
 
-opts :: ParserInfo (FilePath, CommandOpt, [ShakeFlag])
+opts :: ParserInfo (Maybe FilePath, CommandOpt, [ShakeFlag])
 opts = info args mempty
   where
     args = (,,) <$> stackYamlFlag <*> stakeCmd <*> shakeFlags
 
-    stackYamlFlag = strOption (long "stack-yaml" <> metavar "YAML"
-                                <> value "stack.yaml")
+    stackYamlFlag = optional $ strOption (long "stack-yaml" <> metavar "YAML")
+
+findStackYamlFile :: Maybe FilePath -> IO FilePath
+findStackYamlFile (Just f) = return f
+findStackYamlFile Nothing = getCurrentDirectory >>= loop
+  where
+    loop dir = do
+        let candidate = dir </> "stack.yaml"
+        let parent = takeDirectory dir
+        exists <- Directory.doesFileExist candidate
+        if
+            | exists -> return candidate
+            | parent == dir -> error "Couldn't locate stack.yaml file"
+            | otherwise -> loop parent
 
 runWithOptions :: CommandOpt -> Rules ()
 runWithOptions Clean = cleaning True
@@ -113,11 +126,11 @@ buildExeTarget pkg target = do
 
 main :: IO ()
 main = do
-    (stackYamlPath, cmdOpt, flags) <- execParser opts
+    (stackYamlOpt, cmdOpt, flags) <- execParser opts
     -- Run relative to the `stack.yaml` file.
     -- TODO: don't rely on setCurrentDirectory; use absolute paths everywhere
     -- in the code.
-    let (root, stackYamlFile) = splitFileName stackYamlPath
+    (root, stackYamlFile) <- splitFileName <$> findStackYamlFile stackYamlOpt
     setCurrentDirectory root
     withArgs flags $ runStake $ do
         buildPlanRules
