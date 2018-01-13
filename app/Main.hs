@@ -4,15 +4,15 @@ module Main (main) where
 import Control.Monad (void)
 import Data.List.Split (splitOn)
 import Data.Monoid ((<>))
+import Development.Pier.Config
+import Development.Pier.Core
+import Development.Pier.Command
+import Development.Pier.Download
+import Development.Pier.Persistent
+import Development.Pier.Stackage
+import Development.Pier.Build
 import Development.Shake hiding (command)
 import Development.Shake.FilePath ((</>), takeDirectory, splitFileName)
-import Development.Stake.Build
-import Development.Stake.Config
-import Development.Stake.Core
-import Development.Stake.Command
-import Development.Stake.Download
-import Development.Stake.Persistent
-import Development.Stake.Stackage
 import Distribution.Package
 import Distribution.Text (display, simpleParse)
 import Options.Applicative hiding (action)
@@ -64,8 +64,8 @@ whichCommand :: Parser CommandOpt
 whichCommand = Which <$> parseTarget
 
 
-stakeCmd :: Parser CommandOpt
-stakeCmd = subparser $ mconcat
+pierCmd :: Parser CommandOpt
+pierCmd = subparser $ mconcat
     [ command "clean" (cleanCommand `info` progDesc "Clean project")
     , command "clean-all" (cleanAllCommand `info` progDesc "Clean project & dependencies")
     , command "build" (buildCommand `info` progDesc "Build Project")
@@ -77,7 +77,7 @@ stakeCmd = subparser $ mconcat
 opts :: ParserInfo (Maybe FilePath, CommandOpt, [ShakeFlag])
 opts = info args mempty
   where
-    args = (,,) <$> stackYamlFlag <*> stakeCmd <*> shakeFlags
+    args = (,,) <$> stackYamlFlag <*> pierCmd <*> shakeFlags
 
     stackYamlFlag = optional $ strOption (long "stack-yaml" <> metavar "YAML")
 
@@ -132,7 +132,7 @@ main = do
     -- in the code.
     (root, stackYamlFile) <- splitFileName <$> findStackYamlFile stackYamlOpt
     setCurrentDirectory root
-    withArgs flags $ runStake $ do
+    withArgs flags $ runPier $ do
         buildPlanRules
         buildPackageRules
         commandRules

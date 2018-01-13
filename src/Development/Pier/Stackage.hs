@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Development.Stake.Stackage
+module Development.Pier.Stackage
     ( buildPlanRules
     , askBuildPlan
     , askInstalledGhc
@@ -30,12 +30,13 @@ import Distribution.Package
 import Distribution.System (buildPlatform, Platform(..), Arch(..), OS(..))
 import qualified Distribution.Text as Cabal
 import Development.Shake.Classes hiding (get)
-import Development.Stake.Command
-import Development.Stake.Download
-import Development.Stake.Orphans ()
-import Development.Stake.Persistent
 import Development.Shake.FilePath
 import Development.Shake
+
+import Development.Pier.Command
+import Development.Pier.Download
+import Development.Pier.Orphans ()
+import Development.Pier.Persistent
 
 newtype PlanName = PlanName { renderPlanName :: String }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)

@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Development.Stake.Orphans () where
+module Development.Pier.Orphans () where
 
 import Data.Aeson.Types
 import qualified Data.Text as T

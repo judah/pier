@@ -1,7 +1,7 @@
-module Development.Stake.Core
+module Development.Pier.Core
     ( -- * Build directory
-      runStake
-    , stakeFile
+      runPier
+    , pierFile
     , cleanAll
       -- * Directory utilities
     , createParentIfMissing
@@ -12,16 +12,16 @@ import Development.Shake
 import Development.Shake.FilePath
 import System.Directory
 
-stakeDir :: FilePath
-stakeDir = "_stake"
+pierDir :: FilePath
+pierDir = "_pier"
 
 -- TODO: newtype describing inputs/outputs:
-stakeFile :: FilePattern -> FilePattern
-stakeFile = (stakeDir </>)
+pierFile :: FilePattern -> FilePattern
+pierFile = (pierDir </>)
 
-runStake :: Rules () -> IO ()
-runStake = shakeArgs shakeOptions
-                            { shakeFiles = stakeDir
+runPier :: Rules () -> IO ()
+runPier = shakeArgs shakeOptions
+                            { shakeFiles = pierDir
                             , shakeProgress = progressSimple
                             , shakeChange = ChangeDigest
                             -- Detect the number of threads:
@@ -29,7 +29,7 @@ runStake = shakeArgs shakeOptions
                             }
 
 cleanAll :: Rules ()
-cleanAll = action $ removeFilesAfter stakeDir ["//"]
+cleanAll = action $ removeFilesAfter pierDir ["//"]
 
 createParentIfMissing :: MonadIO m => FilePath -> m ()
 createParentIfMissing path

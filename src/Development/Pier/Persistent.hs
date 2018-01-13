@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Development.Stake.Persistent
+module Development.Pier.Persistent
     ( addPersistent
     , askPersistent
     , askPersistents

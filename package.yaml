@@ -1,4 +1,4 @@
-name: stake
+name: pier
 license: BSD3
 maintainer: judah.jacobson@gmail.com
 synopsis: Yet another Haskell build system.
@@ -6,7 +6,7 @@ description: >
     A build system for Haskell projects, built on top of
     [shake](http://shakebuild.com).
 category: Development
-github: judah/stake
+github: judah/pier
 
 dependencies:
   - base
@@ -47,11 +47,11 @@ library:
     - yaml
 
 executables:
-  stake:
+  pier:
     source-dirs: 'app'
     main: Main.hs
     ghc-options: -threaded -with-rtsopts=-I0
     dependencies:
       - optparse-applicative
       - split
-      - stake
+      - pier

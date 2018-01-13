@@ -2,7 +2,7 @@
 -- generate the templates they use at runtime.
 --
 -- TODO: find a more generic solution for this.
-module Development.Stake.Build.Custom
+module Development.Pier.Build.Custom
     ( collectHappyDataFiles
     , collectAlexDataFiles
     ) where
@@ -11,8 +11,9 @@ import Data.Char (isDigit)
 import Data.Monoid
 import Development.Shake
 import Development.Shake.FilePath
-import Development.Stake.Command
-import Development.Stake.Stackage
+
+import Development.Pier.Command
+import Development.Pier.Stackage
 
 collectHappyDataFiles
     :: InstalledGhc -> Artifact -> Action Artifact

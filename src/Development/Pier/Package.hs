@@ -1,4 +1,4 @@
-module Development.Stake.Package
+module Development.Pier.Package
     ( getPackageSourceDir
     , configurePackage
     , parseCabalFileInDir
@@ -17,10 +17,9 @@ import Distribution.PackageDescription
 import Distribution.PackageDescription.Parse
 import Distribution.Compiler
 
-import Development.Stake.Command
-import Development.Stake.Download
-import Development.Stake.Stackage
-
+import Development.Pier.Command
+import Development.Pier.Download
+import Development.Pier.Stackage
 
 downloadCabalPackage :: PackageIdentifier -> Action Artifact
 downloadCabalPackage pkg = do

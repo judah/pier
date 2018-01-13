@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Development.Stake.Build
+module Development.Pier.Build
     ( buildPackageRules
     , askBuiltLibrary
     , askMaybeBuiltLibrary
@@ -22,12 +22,6 @@ import GHC.Generics hiding (packageName)
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath hiding (exe)
-import Development.Stake.Build.Custom
-import Development.Stake.Command
-import Development.Stake.Config
-import Development.Stake.Package
-import Development.Stake.Stackage
-import Development.Stake.Persistent
 import Distribution.ModuleName
 import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
 import Distribution.Package
@@ -40,6 +34,14 @@ import Distribution.Compiler
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Language.Haskell.Extension
+
+import Development.Pier.Build.Custom
+import Development.Pier.Command
+import Development.Pier.Config
+import Development.Pier.Package
+import Development.Pier.Stackage
+import Development.Pier.Persistent
+
 
 buildPackageRules :: Rules ()
 buildPackageRules = addPersistent buildLibrary
@@ -68,7 +70,7 @@ instance Monoid TransitiveDeps where
                 (datas <> datas')
 
 
--- ghc --package-db .stake/...text-1234.pkg/db --package text-1234
+-- ghc --package-db .../text-1234.pkg/db --package text-1234
 data BuiltLibrary = BuiltLibrary
     { builtPackageId :: PackageIdentifier
     , builtPackageTrans :: TransitiveDeps

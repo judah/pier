@@ -28,10 +28,10 @@ jobs:
       - run: hlint .
       - run: weeder . --build
 
-      # Run stake on some sample packages
-      # Note: it currently uses the `stack.yaml` of this `stake` repo itself.
-      - run: $(stack exec which stake) build lens pandoc c2hs stake -j 2
-      - run: $(stack exec which stake) exec hlint $PWD/src
+      # Run pier on some sample packages
+      # Note: it currently uses the `stack.yaml` of this `pier` repo itself.
+      - run: $(stack exec which pier) build lens pandoc c2hs pier -j 2
+      - run: $(stack exec which pier) exec hlint $PWD/src
 
       - save_cache:
             key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}

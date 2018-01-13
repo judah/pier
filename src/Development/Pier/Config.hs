@@ -1,6 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Development.Stake.Config
+module Development.Pier.Config
     ( configRules
     , askConfig
     , Config(..)
@@ -14,14 +14,15 @@ import Control.Monad (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (fromMaybe)
 import Data.Yaml
-import Development.Stake.Stackage
-import Development.Shake
-import Development.Shake.Classes
-import Development.Stake.Command
-import Development.Stake.Package
-import Development.Stake.Persistent
+import Development.Pier.Stackage
+import Development.Pier.Command
+import Development.Pier.Package
+import Development.Pier.Persistent
 import Distribution.Package
 import Distribution.Version
+import Development.Shake
+import Development.Shake.Classes
+
 import GHC.Generics hiding (packageName)
 
 data StackYamlPath = StackYamlPath
