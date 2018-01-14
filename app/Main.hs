@@ -3,7 +3,8 @@ module Main (main) where
 
 import Control.Monad (void)
 import Data.List.Split (splitOn)
-import Data.Monoid ((<>))
+import Data.Monoid (Last(..))
+import Data.Semigroup (Semigroup, (<>))
 import Development.Pier.Config
 import Development.Pier.Core
 import Development.Pier.Command
@@ -25,28 +26,78 @@ data CommandOpt
     | Build [(PackageName, Target)]
     | Exec (PackageName, Target) [String]
     | Which (PackageName, Target)
-type ShakeFlag = String
 
-verbosity :: Parser [ShakeFlag]
-verbosity = fmap mk $ many $ flag' 'V' ( long "verbose"
-                                         <> short 'V')
+data CommonOptions = CommonOptions
+    { stackYaml :: Last FilePath
+    , shakeFlags :: [String]
+    }
+
+instance Semigroup CommonOptions where
+    CommonOptions y f <> CommonOptions y' f'
+        = CommonOptions (y <> y') (f <> f')
+
+-- | Parse command-independent options.
+-- 
+-- These are allowed both at the top level
+-- (for example, "-V" in "pier -V build TARGETS") and within individual
+-- commands ("pier build -V TARGETS").  However, we want them to only appear
+-- in "pier --help", not "pier build --help".  Doing so is slightly
+-- cumbersome with optparse-applicative.
+parseCommonOptions :: Hidden -> Parser CommonOptions
+parseCommonOptions h = CommonOptions <$> parseStackYaml <*> parseShakeFlags h
   where
-    mk [] = []
-    mk vs = ['-':vs]
+    parseStackYaml :: Parser (Last FilePath)
+    parseStackYaml = fmap Last $ optional $ strOption
+                        $ long "stack-yaml" <> metavar "YAML" <> hide h
 
-parallelism :: Parser ShakeFlag
-parallelism = ("--jobs=" ++) <$> strOption ( long "jobs"
-                                             <> short 'j')
+data Hidden = Hidden | Shown
 
-shakeArg :: Parser ShakeFlag
-shakeArg = strOption (long "shake-arg" <> metavar "SHAKEARG")
+hide :: Hidden -> Mod f a
+hide Hidden = hidden <> internal
+hide Shown = mempty
 
-shakeFlags :: Parser [ShakeFlag]
-shakeFlags = mconcat <$> sequenceA
-                            [ verbosity
-                            , many parallelism
-                            , many shakeArg
-                            ]
+parseShakeFlags :: Hidden -> Parser [String]
+parseShakeFlags h =
+    mconcat <$> sequenceA [verbosity, many parallelism, many shakeArg]
+  where
+    shakeArg = strOption (long "shake-arg" <> metavar "SHAKEARG" <> hide h)
+
+    parallelism =
+        fmap ("--jobs=" ++) . strOption
+            $ long "jobs"
+                <> short 'j'
+                <> help "Number of job/threads at once [default CPUs]"
+                <> hide h
+
+    verbosity =
+        fmap combineFlags . many . flag' 'V'
+            $ long "verbose"
+                <> short 'V'
+                <> help "Increase the verbosity level"
+                <> hide h
+
+    combineFlags [] = []
+    combineFlags vs = ['-':vs]
+
+parser :: ParserInfo (CommonOptions, CommandOpt)
+parser = fmap (\(x,(y,z)) -> (x <> y, z))
+            $ info (helper <*> liftA2 (,) (parseCommonOptions Shown)
+                                    parseCommand)
+            $ progDesc "Yet another Haskell build tool"
+
+parseCommand :: Parser (CommonOptions, CommandOpt)
+parseCommand = subparser $ mconcat
+    [ make "clean" cleanCommand "Clean project"
+    , make "clean-all" cleanAllCommand "Clean project & dependencies"
+    , make "build" buildCommand "Build project"
+    , make "exec" execCommand "Run executable"
+    , make "which" whichCommand "Build executable and print its location"
+    ]
+  where
+    make name act desc =
+        command name $ info (liftA2 (,) (parseCommonOptions Hidden)
+                                        (helper <*> act))
+                     $ progDesc desc
 
 cleanCommand :: Parser CommandOpt
 cleanCommand = pure Clean
@@ -63,23 +114,6 @@ execCommand = Exec <$> parseTarget <*> many (strArgument (metavar "ARGUMENT"))
 whichCommand :: Parser CommandOpt
 whichCommand = Which <$> parseTarget
 
-
-pierCmd :: Parser CommandOpt
-pierCmd = subparser $ mconcat
-    [ command "clean" (cleanCommand `info` progDesc "Clean project")
-    , command "clean-all" (cleanAllCommand `info` progDesc "Clean project & dependencies")
-    , command "build" (buildCommand `info` progDesc "Build Project")
-    , command "exec" (execCommand `info` progDesc "Run executable")
-    , command "which" (whichCommand `info` progDesc
-                            "Build executable and print its location")
-    ]
-
-opts :: ParserInfo (Maybe FilePath, CommandOpt, [ShakeFlag])
-opts = info args mempty
-  where
-    args = (,,) <$> stackYamlFlag <*> pierCmd <*> shakeFlags
-
-    stackYamlFlag = optional $ strOption (long "stack-yaml" <> metavar "YAML")
 
 findStackYamlFile :: Maybe FilePath -> IO FilePath
 findStackYamlFile (Just f) = return f
@@ -126,13 +160,14 @@ buildExeTarget pkg target = do
 
 main :: IO ()
 main = do
-    (stackYamlOpt, cmdOpt, flags) <- execParser opts
+    (commonOpts, cmdOpt) <- execParser parser
     -- Run relative to the `stack.yaml` file.
     -- TODO: don't rely on setCurrentDirectory; use absolute paths everywhere
     -- in the code.
-    (root, stackYamlFile) <- splitFileName <$> findStackYamlFile stackYamlOpt
+    (root, stackYamlFile)
+        <- splitFileName <$> findStackYamlFile (getLast $ stackYaml commonOpts)
     setCurrentDirectory root
-    withArgs flags $ runPier $ do
+    withArgs (shakeFlags commonOpts) $ runPier $ do
         buildPlanRules
         buildPackageRules
         commandRules
