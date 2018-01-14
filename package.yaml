@@ -13,6 +13,7 @@ dependencies:
   - Cabal
   - directory
   - shake
+  - unordered-containers
 
 default-extensions:
   - BangPatterns
@@ -42,7 +43,6 @@ library:
     - text
     - transformers
     - unix
-    - unordered-containers
     - wreq
     - yaml
 

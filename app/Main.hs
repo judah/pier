@@ -2,6 +2,7 @@
 module Main (main) where
 
 import Control.Monad (void)
+import qualified Data.HashMap.Strict as HM
 import Data.List.Split (splitOn)
 import Data.Monoid (Last(..))
 import Data.Semigroup (Semigroup, (<>))
@@ -114,7 +115,7 @@ cleanAllCommand :: Parser CommandOpt
 cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser CommandOpt
-buildCommand = Build <$> some parseTarget
+buildCommand = Build <$> many parseTarget
 
 runCommand :: Parser CommandOpt
 runCommand = Run <$> parseSandboxed <*> parseTarget
@@ -145,7 +146,13 @@ runWithOptions CleanAll = do
     cleanAll
 runWithOptions (Build targets) = do
     cleaning False
-    action $ forP targets (uncurry buildTarget)
+    action $ do
+        -- Build everything if the targets list is empty
+        targets' <- if null targets
+                        then map (,TargetAll) . HM.keys . localPackages
+                                <$> askConfig
+                        else pure targets
+        forP targets' (uncurry buildTarget)
 runWithOptions (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
