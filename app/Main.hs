@@ -7,7 +7,7 @@ import Data.Monoid (Last(..))
 import Data.Semigroup (Semigroup, (<>))
 import Development.Pier.Config
 import Development.Pier.Core
-import Development.Pier.Command
+import Development.Pier.Command hiding (runCommand)
 import Development.Pier.Download
 import Development.Pier.Persistent
 import Development.Pier.Stackage
@@ -24,8 +24,16 @@ data CommandOpt
     = Clean
     | CleanAll
     | Build [(PackageName, Target)]
-    | Exec (PackageName, Target) [String]
+    | Run Sandboxed (PackageName, Target) [String]
     | Which (PackageName, Target)
+
+data Sandboxed = Sandbox | NoSandbox
+
+parseSandboxed :: Parser Sandboxed
+parseSandboxed =
+    flag NoSandbox Sandbox
+        $ long "sandbox"
+        <> help "Run hermetically in a temporary folder"
 
 data CommonOptions = CommonOptions
     { stackYaml :: Last FilePath
@@ -90,7 +98,7 @@ parseCommand = subparser $ mconcat
     [ make "clean" cleanCommand "Clean project"
     , make "clean-all" cleanAllCommand "Clean project & dependencies"
     , make "build" buildCommand "Build project"
-    , make "exec" execCommand "Run executable"
+    , make "run" runCommand "Run executable"
     , make "which" whichCommand "Build executable and print its location"
     ]
   where
@@ -108,8 +116,9 @@ cleanAllCommand = pure CleanAll
 buildCommand :: Parser CommandOpt
 buildCommand = Build <$> some parseTarget
 
-execCommand :: Parser CommandOpt
-execCommand = Exec <$> parseTarget <*> many (strArgument (metavar "ARGUMENT"))
+runCommand :: Parser CommandOpt
+runCommand = Run <$> parseSandboxed <*> parseTarget
+                 <*> many (strArgument (metavar "ARGUMENT"))
 
 whichCommand :: Parser CommandOpt
 whichCommand = Which <$> parseTarget
@@ -137,11 +146,15 @@ runWithOptions CleanAll = do
 runWithOptions (Build targets) = do
     cleaning False
     action $ forP targets (uncurry buildTarget)
-runWithOptions (Exec (pkg, target) args) = do
+runWithOptions (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
-        liftIO $ callArtifact (builtExeDataFiles exe) (builtBinary exe) args
+        case sandbox of
+            Sandbox -> liftIO $ callArtifact (builtExeDataFiles exe)
+                                    (builtBinary exe) args
+            NoSandbox -> command_ [WithStderr False]
+                            (pathIn $ builtBinary exe) args
 runWithOptions (Which (pkg, target)) = do
     cleaning False
     action $ do
