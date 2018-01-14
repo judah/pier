@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveAnyClass #-}
 module Development.Pier.Persistent
     ( addPersistent
     , askPersistent
@@ -15,10 +15,10 @@ import Development.Shake.Rule
 import GHC.Generics
 
 newtype PersistentQ question = PersistentQ question
-    deriving (Show, Typeable, Eq, Hashable, Binary, NFData)
+    deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
 
 newtype PersistentA answer = PersistentA { unPersistentA :: answer }
-    deriving (Show, Typeable, Eq, Hashable, Binary, NFData)
+    deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
 
 type instance RuleResult (PersistentQ q) = PersistentA (RuleResult q)
 
@@ -67,10 +67,7 @@ askPersistents = fmap (map unPersistentA) . apply . map PersistentQ
 
 
 data Cleaner = Cleaner
-    deriving (Show, Typeable, Eq, Generic)
-instance Binary Cleaner
-instance NFData Cleaner
-instance Hashable Cleaner
+    deriving (Show, Typeable, Eq, Generic, Binary, NFData, Hashable)
 
 type instance RuleResult Cleaner = ()
 
