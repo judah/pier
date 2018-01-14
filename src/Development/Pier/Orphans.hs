@@ -16,6 +16,8 @@ instance Hashable a => Hashable (Set.Set a) where
 instance Hashable FlagName
 instance Hashable PackageId
 instance Hashable PackageName
+instance Hashable ComponentId
+instance Hashable UnitId
 
 instance FromJSON PackageIdentifier where
     parseJSON = withText "PackageIdentifier" simpleParser

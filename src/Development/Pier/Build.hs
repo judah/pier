@@ -44,13 +44,12 @@ import Development.Pier.Persistent
 
 
 buildPackageRules :: Rules ()
-buildPackageRules = addPersistent buildLibrary
+buildPackageRules = do
+    addPersistent buildLibrary
+    addPersistent getBuiltinLib
 
 newtype BuiltLibraryR = BuiltLibraryR PackageName
-    deriving (Show,Typeable,Eq,Generic)
-instance Hashable BuiltLibraryR
-instance Binary BuiltLibraryR
-instance NFData BuiltLibraryR
+    deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
 type instance RuleResult BuiltLibraryR = Maybe BuiltLibrary
 
 data TransitiveDeps = TransitiveDeps
@@ -92,6 +91,7 @@ askBuiltLibrary pkg = askMaybeBuiltLibrary pkg >>= helper
 
 
 data BuiltDeps = BuiltDeps [PackageIdentifier] TransitiveDeps
+  deriving Show
 
 askBuiltDeps
     :: [PackageName]
@@ -127,7 +127,8 @@ getConfiguredPackage p = do
 buildLibrary :: BuiltLibraryR -> Action (Maybe BuiltLibrary)
 buildLibrary (BuiltLibraryR pkg) =
     getConfiguredPackage pkg >>= \case
-        Left p -> Just <$> getBuiltinLib p
+        Left p -> Just . BuiltLibrary p <$> askBuiltinLibrary
+                                                (packageIdToUnitId p)
         Right confd
             | Just lib <- library (confdDesc confd)
             , let bi = libBuildInfo lib
@@ -135,27 +136,42 @@ buildLibrary (BuiltLibraryR pkg) =
                 deps <- askBuiltDeps $ targetDepNames bi
                 buildLibraryFromDesc deps confd lib
             | otherwise -> return Nothing
+  where
+    packageIdToUnitId :: PackageId -> UnitId
+    packageIdToUnitId = mkUnitId . display
 
-getBuiltinLib :: PackageId -> Action BuiltLibrary
-getBuiltinLib p = do
+getBuiltinLib :: BuiltinLibraryR -> Action TransitiveDeps
+getBuiltinLib (BuiltinLibraryR p) = do
     ghc <- configGhc <$> askConfig
     result <- runCommandStdout
                 $ ghcPkgProg ghc
                     ["describe" , display p]
-
-    info <- return $! case IP.parseInstalledPackageInfo result of
+    info <- case IP.parseInstalledPackageInfo result of
         IP.ParseFailed err -> error (show err)
-        IP.ParseOk _ info -> info
-    return $ BuiltLibrary p
-                TransitiveDeps
+        IP.ParseOk _ info -> return info
+    deps <- mapM askBuiltinLibrary $ IP.depends info
+    let paths f = Set.fromList . map (parseGlobalPackagePath ghc)
+                        . f $ info
+    return $ mconcat deps <> TransitiveDeps
                     { transitiveDBs = Set.empty
-                    , transitiveLibFiles = ghcArtifacts ghc
-                    , transitiveIncludeDirs
-                            = Set.fromList
-                                    $ map (parseGlobalPackagePath ghc)
-                                    $ IP.includeDirs info
-                    , transitiveDataFiles = Set.empty
+                    -- Don't bother tracking compile-time files for built-in
+                    -- libraries, since they're already provided implicitly
+                    -- by `ghcProg`.
+                    , transitiveLibFiles = Set.empty
+                    , transitiveIncludeDirs = paths IP.includeDirs
+                    -- Make dynamic libraries available at runtime,
+                    -- falling back to the regular dir if it's not set
+                    -- (usually these will be the same).
+                    , transitiveDataFiles = paths IP.libraryDirs
+                                            <> paths IP.libraryDynDirs
                     }
+
+askBuiltinLibrary :: UnitId -> Action TransitiveDeps
+askBuiltinLibrary = askPersistent . BuiltinLibraryR
+
+newtype BuiltinLibraryR = BuiltinLibraryR UnitId
+    deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
+type instance RuleResult BuiltinLibraryR = TransitiveDeps
 
 buildLibraryFromDesc
     :: BuiltDeps
@@ -171,7 +187,6 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
     let hiDir = "hi"
     let oDir = "o"
     let libName = "HS" ++ display (packageName $ package desc)
-    let libFile = "lib" ++ libName <.> "a"
     let dynLibFile = "lib" ++ libName
                         ++ "-ghc" ++ display (ghcVersion $ plan conf) <.> dynExt
     let shouldBuildLib = not $ null $ exposedModules lib
@@ -190,50 +205,36 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
     maybeLib <- if not shouldBuildLib
             then return Nothing
             else do
-                (hiDir', oDir') <- runCommand
-                    (liftA2 (,) (output hiDir) (output oDir))
+                (hiDir', dynLib) <- runCommand
+                    (liftA2 (,) (output hiDir) (output dynLibFile))
                     $ message (display (package desc) ++ ": building library")
                     <> inputList (moduleBootFiles ++ cIncludes)
                     <> ghcCommand ghc deps lbi confd
                             [ "-this-unit-id", display $ package desc
                             , "-hidir", pathOut hiDir
+                            , "-hisuf", "dyn_hi"
+                            , "-osuf", "dyn_o"
                             , "-odir", pathOut oDir
-                            , "-dynamic-too"
+                            , "-shared", "-dynamic"
+                            , "-o", pathOut dynLibFile
                             ]
                             (moduleFiles ++ cFiles)
-                let objs = map (\m -> oDir' /> toFilePath m <.> "o") modules
-                                -- TODO: this is pretty janky...
-                                ++ map (\f -> replaceArtifactExtension
-                                                    (oDir'/> pathIn f) "o")
-                                        cFiles
-                let dynModuleObjs = map (\m -> oDir' /> toFilePath m <.> "dyn_o") modules
-                libArchive <- runCommand (output libFile)
-                    $ inputList objs
-                    <> message (display (package desc) ++ ": linking static library")
-                    <> prog "ar" ([arParams, pathOut libFile]
-                                    ++ map pathIn objs)
-                dynLib <- runCommand (output dynLibFile)
-                    $ inputList cIncludes
-                    <> message (display (package desc) ++ ": linking dynamic library")
-                    <> ghcCommand ghc deps lbi confd
-                        ["-shared", "-dynamic", "-o", pathOut dynLibFile]
-                        (dynModuleObjs ++ cFiles)
-                return $ Just (libName, lib, libArchive, dynLib, hiDir')
+                return $ Just (libName, lib, dynLib, hiDir')
     (pkgDb, libFiles) <- registerPackage ghc (package desc) lbi maybeLib
                 deps
+    let linkerData = maybe Set.empty (\(_,_,dyn,_) -> Set.singleton dyn)
+                        maybeLib
     return $ BuiltLibrary (package desc)
             $ transDeps <> TransitiveDeps
                 { transitiveDBs = Set.singleton pkgDb
                 , transitiveLibFiles = Set.singleton libFiles
                 -- TODO:
                 , transitiveIncludeDirs = Set.empty
-                , transitiveDataFiles = maybe Set.empty Set.singleton datas
+                , transitiveDataFiles = linkerData
+                        -- TODO: just the lib
+                        <> Set.singleton libFiles
                 }
 
-arParams :: String
-arParams = case buildOS of
-                OSX -> "-cqv"
-                _ -> "-rcs"
 
 -- TODO: double-check no two executables with the same name
 
@@ -304,6 +305,7 @@ buildExecutable confd exe = do
                 [ "-o", pathOut (exeName exe)
                 , "-hidir", outputPrefix </> "hi"
                 , "-odir", outputPrefix </> "o"
+                , "-dynamic"
                 ]
                 (addIfMissing mainFile otherModuleFiles ++ cFiles)
     return BuiltExecutable
@@ -381,7 +383,6 @@ registerPackage
     -> BuildInfo
     -> Maybe ( String  -- Library name for linking
              , Library
-             , Artifact -- lib archive
              , Artifact -- dyn lib archive
              , Artifact -- hi
              )
@@ -392,9 +393,8 @@ registerPackage ghc pkg bi maybeLib (BuiltDeps depPkgs transDeps)
     let pre = "files"
     let (collectLibInputs, libDesc) = case maybeLib of
             Nothing -> (createDirectoryA pre, [])
-            Just (libName, lib, libA, dynLibA, hi) ->
-                ( shadow libA (pre </> takeFileName (pathIn libA))
-                    <> shadow dynLibA (pre </> takeFileName (pathIn dynLibA))
+            Just (libName, lib, dynLibA, hi) ->
+                ( shadow dynLibA (pre </> takeFileName (pathIn dynLibA))
                     <> shadow hi (pre </> "hi")
                 , [ "hs-libraries: " ++ libName
                   , "library-dirs: ${pkgroot}" </> pre
