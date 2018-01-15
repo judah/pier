@@ -2,7 +2,7 @@
 -- generate the templates they use at runtime.
 --
 -- TODO: find a more generic solution for this.
-module Development.Pier.Build.Custom
+module Pier.Build.Custom
     ( collectHappyDataFiles
     , collectAlexDataFiles
     ) where
@@ -12,8 +12,8 @@ import Data.Monoid
 import Development.Shake
 import Development.Shake.FilePath
 
-import Development.Pier.Command
-import Development.Pier.Stackage
+import Pier.Build.Stackage
+import Pier.Core.Command
 
 collectHappyDataFiles
     :: InstalledGhc -> Artifact -> Action Artifact

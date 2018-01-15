@@ -1,16 +1,12 @@
-module Development.Pier.Core
+module Pier.Core.Run
     ( -- * Build directory
       runPier
     , pierFile
     , cleanAll
-      -- * Directory utilities
-    , createParentIfMissing
     ) where
 
-import Control.Monad.IO.Class
 import Development.Shake
 import Development.Shake.FilePath
-import System.Directory
 
 pierDir :: FilePath
 pierDir = "_pier"
@@ -30,7 +26,3 @@ runPier = shakeArgs shakeOptions
 
 cleanAll :: Rules ()
 cleanAll = action $ removeFilesAfter pierDir ["//"]
-
-createParentIfMissing :: MonadIO m => FilePath -> m ()
-createParentIfMissing path
-    = liftIO $ createDirectoryIfMissing True (takeDirectory path)

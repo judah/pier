@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Development.Pier.Build
+module Pier.Build.Components
     ( buildPackageRules
     , askBuiltLibrary
     , askMaybeBuiltLibrary
@@ -35,12 +35,12 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Language.Haskell.Extension
 
-import Development.Pier.Build.Custom
-import Development.Pier.Command
-import Development.Pier.Config
-import Development.Pier.Package
-import Development.Pier.Stackage
-import Development.Pier.Persistent
+import Pier.Build.Custom
+import Pier.Build.Config
+import Pier.Build.Package
+import Pier.Build.Stackage
+import Pier.Core.Command
+import Pier.Core.Persistent
 
 
 buildPackageRules :: Rules ()

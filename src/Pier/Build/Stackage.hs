@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Development.Pier.Stackage
+module Pier.Build.Stackage
     ( buildPlanRules
     , askBuildPlan
     , askInstalledGhc
@@ -33,10 +33,10 @@ import Development.Shake.Classes hiding (get)
 import Development.Shake.FilePath
 import Development.Shake
 
-import Development.Pier.Command
-import Development.Pier.Download
-import Development.Pier.Orphans ()
-import Development.Pier.Persistent
+import Pier.Core.Command
+import Pier.Core.Download
+import Pier.Core.Persistent
+import Pier.Orphans ()
 
 newtype PlanName = PlanName { renderPlanName :: String }
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)

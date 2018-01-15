@@ -1,4 +1,4 @@
-module Development.Pier.Package
+module Pier.Build.Package
     ( getPackageSourceDir
     , configurePackage
     , parseCabalFileInDir
@@ -17,9 +17,9 @@ import Distribution.PackageDescription
 import Distribution.PackageDescription.Parse
 import Distribution.Compiler
 
-import Development.Pier.Command
-import Development.Pier.Download
-import Development.Pier.Stackage
+import Pier.Build.Stackage
+import Pier.Core.Command
+import Pier.Core.Download
 
 downloadCabalPackage :: PackageIdentifier -> Action Artifact
 downloadCabalPackage pkg = do

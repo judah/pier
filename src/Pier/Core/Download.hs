@@ -1,4 +1,4 @@
-module Development.Pier.Download
+module Pier.Core.Download
     ( askDownload
     , Download(..)
     , downloadRules
@@ -16,9 +16,9 @@ import qualified System.Directory as Directory
 import System.IO.Temp as Temp
 import qualified System.IO as IO
 
-import Development.Pier.Core
-import Development.Pier.Command
-import Development.Pier.Persistent
+import Pier.Core.Directory
+import Pier.Core.Command
+import Pier.Core.Persistent
 
 -- | Downloads @downloadUrlPrefix </> downloadName@ to
 -- @downloadFilePrefix </> downloadName@.

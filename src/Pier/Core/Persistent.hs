@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
-module Development.Pier.Persistent
+module Pier.Core.Persistent
     ( addPersistent
     , askPersistent
     , askPersistents

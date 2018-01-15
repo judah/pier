@@ -3,7 +3,7 @@
 -- Output format: _pier/artifact/HASH/path/to/files
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE TypeOperators #-}
-module Development.Pier.Command
+module Pier.Core.Command
     ( commandRules
     , Output
     , output
@@ -58,9 +58,10 @@ import System.Process (showCommandForUser)
 import System.Posix.Files (createSymbolicLink)
 import Distribution.Simple.Utils (matchDirFileGlob)
 
-import Development.Pier.Core
-import Development.Pier.Orphans ()
-import Development.Pier.Persistent
+import Pier.Core.Directory
+import Pier.Core.Run
+import Pier.Core.Persistent
+import Pier.Orphans ()
 
 -- TODO: reconsider names in this module
 

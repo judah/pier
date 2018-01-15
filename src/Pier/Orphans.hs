@@ -1,6 +1,7 @@
+-- | All-purpose module for defining orphan instances.
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Development.Pier.Orphans () where
+module Pier.Orphans () where
 
 import Data.Aeson.Types
 import qualified Data.Text as T
