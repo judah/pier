@@ -161,7 +161,7 @@ runWithOptions (Run sandbox (pkg, target) args) = do
         case sandbox of
             Sandbox -> liftIO $ callArtifact (builtExeDataFiles exe)
                                     (builtBinary exe) args
-            NoSandbox -> command_ [WithStderr False]
+            NoSandbox -> quietly $ command_ [WithStderr False]
                             (pathIn $ builtBinary exe) args
 runWithOptions (Which (pkg, target)) = do
     cleaning False
