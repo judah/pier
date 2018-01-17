@@ -13,7 +13,7 @@ Building `pier` with `pier` is OK, I guess:
 But what about using **that** `pier` to build `pier`?  We just need to
 distinguish Shake's metadata between the two invocations:
 
-    $ stack exec -- pier -- run -- pier build pier --shake-arg=--metadata=temp-metadata
+    $ stack exec -- pier -- run pier build pier --shake-arg=--metadata=temp-metadata
     Build completed in 0:10m
 
     Build completed in 0:10m
