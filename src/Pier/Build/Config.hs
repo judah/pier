@@ -25,51 +25,51 @@ import Pier.Build.Package
 import Pier.Core.Command
 import Pier.Core.Persistent
 
-data StackYamlPath = StackYamlPath
+data PierYamlPath = PierYamlPath
     deriving (Show, Eq, Typeable, Generic)
-instance Hashable StackYamlPath
-instance Binary StackYamlPath
-instance NFData StackYamlPath
+instance Hashable PierYamlPath
+instance Binary PierYamlPath
+instance NFData PierYamlPath
 
-type instance RuleResult StackYamlPath = FilePath
+type instance RuleResult PierYamlPath = FilePath
 
 configRules :: FilePath -> Rules ()
 configRules f = do
-    void $ addOracle $ \StackYamlPath -> return f
-    void $ addPersistent $ \StackYamlQ -> do
-        path <- askOracle StackYamlPath
+    void $ addOracle $ \PierYamlPath -> return f
+    void $ addPersistent $ \PierYamlQ -> do
+        path <- askOracle PierYamlPath
         need [path]
         yamlE <- liftIO $ decodeFileEither path
         either (liftIO . throw) return yamlE
 
 -- TODO: rename; maybe ConfigSpec and ConfigEnv?  Or Config and Env?
-data StackYaml = StackYaml
+data PierYaml = PierYaml
     { resolver :: PlanName
     , packages :: [FilePath]
     , extraDeps :: [PackageIdentifier]
     } deriving (Show, Eq, Typeable, Generic)
-instance Hashable StackYaml
-instance Binary StackYaml
-instance NFData StackYaml
+instance Hashable PierYaml
+instance Binary PierYaml
+instance NFData PierYaml
 
-instance FromJSON StackYaml where
-    parseJSON = withObject "StackYaml" $ \o -> do
+instance FromJSON PierYaml where
+    parseJSON = withObject "PierYaml" $ \o -> do
         r <- o .: "resolver"
         pkgs <- o .:? "packages"
         ed <- o .:? "extra-deps"
-        return StackYaml
+        return PierYaml
             { resolver = r
             , packages = fromMaybe [] pkgs
             , extraDeps = fromMaybe [] ed
             }
 
-data StackYamlQ = StackYamlQ
+data PierYamlQ = PierYamlQ
     deriving (Show, Eq, Typeable, Generic)
-instance Hashable StackYamlQ
-instance Binary StackYamlQ
-instance NFData StackYamlQ
+instance Hashable PierYamlQ
+instance Binary PierYamlQ
+instance NFData PierYamlQ
 
-type instance RuleResult StackYamlQ = StackYaml
+type instance RuleResult PierYamlQ = PierYaml
 
 
 data Config = Config
@@ -82,7 +82,7 @@ data Config = Config
 -- TODO: cache?
 askConfig :: Action Config
 askConfig = do
-    yaml <- askPersistent StackYamlQ
+    yaml <- askPersistent PierYamlQ
     p <- askBuildPlan (resolver yaml)
     ghc <- askInstalledGhc (ghcVersion p)
     -- TODO: don't parse local package defs twice.

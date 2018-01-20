@@ -38,7 +38,7 @@ parseSandboxed =
         <> help "Run hermetically in a temporary folder"
 
 data CommonOptions = CommonOptions
-    { stackYaml :: Last FilePath
+    { pierYaml :: Last FilePath
     , shakeFlags :: [String]
     }
 
@@ -54,11 +54,11 @@ instance Semigroup CommonOptions where
 -- in "pier --help", not "pier build --help".  Doing so is slightly
 -- cumbersome with optparse-applicative.
 parseCommonOptions :: Hidden -> Parser CommonOptions
-parseCommonOptions h = CommonOptions <$> parseStackYaml <*> parseShakeFlags h
+parseCommonOptions h = CommonOptions <$> parsePierYaml <*> parseShakeFlags h
   where
-    parseStackYaml :: Parser (Last FilePath)
-    parseStackYaml = fmap Last $ optional $ strOption
-                        $ long "stack-yaml" <> metavar "YAML" <> hide h
+    parsePierYaml :: Parser (Last FilePath)
+    parsePierYaml = fmap Last $ optional $ strOption
+                        $ long "pier-yaml" <> metavar "YAML" <> hide h
 
 data Hidden = Hidden | Shown
 
@@ -126,17 +126,20 @@ whichCommand :: Parser CommandOpt
 whichCommand = Which <$> parseTarget
 
 
-findStackYamlFile :: Maybe FilePath -> IO FilePath
-findStackYamlFile (Just f) = return f
-findStackYamlFile Nothing = getCurrentDirectory >>= loop
+findPierYamlFile :: Maybe FilePath -> IO FilePath
+findPierYamlFile (Just f) = return f
+findPierYamlFile Nothing = getCurrentDirectory >>= loop
   where
     loop dir = do
-        let candidate = dir </> "stack.yaml"
+        let baseFile = "pier.yaml"
+        let candidate = dir </> baseFile
         let parent = takeDirectory dir
         exists <- Directory.doesFileExist candidate
         if
             | exists -> return candidate
-            | parent == dir -> error "Couldn't locate stack.yaml file"
+            | parent == dir ->
+                error $ "Couldn't locate " ++ baseFile
+                    ++ " from the current directory"
             | otherwise -> loop parent
 
 runWithOptions :: CommandOpt -> Rules ()
@@ -182,11 +185,11 @@ buildExeTarget pkg target = do
 main :: IO ()
 main = do
     (commonOpts, cmdOpt) <- execParser parser
-    -- Run relative to the `stack.yaml` file.
+    -- Run relative to the `pier.yaml` file.
     -- TODO: don't rely on setCurrentDirectory; use absolute paths everywhere
     -- in the code.
-    (root, stackYamlFile)
-        <- splitFileName <$> findStackYamlFile (getLast $ stackYaml commonOpts)
+    (root, pierYamlFile)
+        <- splitFileName <$> findPierYamlFile (getLast $ pierYaml commonOpts)
     setCurrentDirectory root
     withArgs (shakeFlags commonOpts) $ runPier $ do
         buildPlanRules
@@ -194,7 +197,7 @@ main = do
         commandRules
         downloadRules
         installGhcRules
-        configRules stackYamlFile
+        configRules pierYamlFile
         runWithOptions cmdOpt
 
 -- TODO: move into Build.hs
