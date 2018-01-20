@@ -1,5 +1,5 @@
 -- | All-purpose module for defining orphan instances.
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Pier.Orphans () where
 
@@ -11,6 +11,9 @@ import Distribution.PackageDescription
 import Distribution.Package
 import qualified Distribution.Text as Cabal
 
+import Distribution.Version
+import Distribution.Utils.ShortText
+
 instance Hashable a => Hashable (Set.Set a) where
     hashWithSalt k = hashWithSalt k . Set.toList
 
@@ -19,11 +22,23 @@ instance Hashable PackageId
 instance Hashable PackageName
 instance Hashable ComponentId
 instance Hashable UnitId
+instance Hashable ShortText
+instance Hashable Version
+
+instance FromJSON Version where
+    parseJSON = withText "Version" simpleParser
+
+instance FromJSONKey Version where
+    fromJSONKey = cabalKeyTextParser
+
+instance FromJSON PackageName where
+    parseJSON = withText "PackageName" simpleParser
+
+instance FromJSONKey PackageName where
+    fromJSONKey = cabalKeyTextParser
 
 instance FromJSON PackageIdentifier where
     parseJSON = withText "PackageIdentifier" simpleParser
-
-deriving instance FromJSONKey PackageName
 
 simpleParser :: Cabal.Text a => T.Text -> Parser a
 simpleParser t = case Cabal.simpleParse (T.unpack t) of
@@ -31,3 +46,5 @@ simpleParser t = case Cabal.simpleParse (T.unpack t) of
                         Nothing -> fail $ "Unable to parse PackageIdentifier: "
                                             ++ show t
 
+cabalKeyTextParser :: Cabal.Text a => FromJSONKeyFunction a
+cabalKeyTextParser = FromJSONKeyTextParser simpleParser

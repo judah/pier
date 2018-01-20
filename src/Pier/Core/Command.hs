@@ -483,13 +483,13 @@ doesArtifactExist :: Artifact -> Action Bool
 doesArtifactExist (Artifact External f) = Development.Shake.doesFileExist f
 doesArtifactExist f = liftIO $ Directory.doesFileExist (pathIn f)
 
-matchArtifactGlob :: Artifact -> FilePath -> Action [Artifact]
+-- Note: this throws an exception if there's no match.
+matchArtifactGlob :: Artifact -> FilePath -> Action [FilePath]
 -- TODO: match the behavior of Cabal
 matchArtifactGlob (Artifact External f) g
-    = map (Artifact External . normalise . (f </>)) <$> getDirectoryFiles f [g]
-matchArtifactGlob a@(Artifact (Built h) f) g
-    = fmap (map (Artifact (Built h) . normalise . (f </>)))
-            $ liftIO $ matchDirFileGlob (pathIn a) g
+    = getDirectoryFiles f [g]
+matchArtifactGlob a g
+    = liftIO $ matchDirFileGlob (pathIn a) g
 
 -- TODO: merge more with above code?  How hermetic should it be?
 callArtifact :: Set Artifact -> Artifact -> [String] -> IO ()

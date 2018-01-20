@@ -25,11 +25,11 @@ import Development.Shake.FilePath hiding (exe)
 import Distribution.ModuleName
 import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
 import Distribution.Package
-import Distribution.PackageDescription
+import Distribution.PackageDescription hiding (libName)
 import qualified Distribution.InstalledPackageInfo as IP
 import Distribution.Text
 import Distribution.System (buildOS, OS(..))
-import Distribution.Version (Version(..))
+import Distribution.Version (Version, versionNumbers)
 import Distribution.Compiler
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -253,7 +253,7 @@ buildExecutables p = getConfiguredPackage p >>= \case
     Left _ -> return Map.empty
     Right confd ->
         fmap Map.fromList
-            . mapM (\e -> (exeName e,) <$> buildExecutable confd e)
+            . mapM (\e -> (display $ exeName e,) <$> buildExecutable confd e)
             . filter (buildable . buildInfo)
             $ executables (confdDesc confd)
 
@@ -263,7 +263,7 @@ buildExecutableNamed p e = getConfiguredPackage p >>= \case
     Left pid -> error $ "Built-in package " ++ display pid
                         ++ " has no executables"
     Right confd
-        | Just exe <- find ((== e) . exeName) (executables $ confdDesc confd)
+        | Just exe <- find ((== e) . display . exeName) (executables $ confdDesc confd)
             -> buildExecutable confd exe
         | otherwise -> error $ "Package " ++ display (packageId confd)
                             ++ " has no executable named " ++ e
@@ -273,6 +273,7 @@ buildExecutable
     -> Executable
     -> Action BuiltExecutable
 buildExecutable confd exe = do
+    let name = display $ exeName exe
     let desc = confdDesc confd
     let packageSourceDir = confdSourceDir confd
     let bi = buildInfo exe
@@ -281,7 +282,7 @@ buildExecutable confd exe = do
     conf <- askConfig
     let ghc = configGhc conf
     let outputPrefix = display (packageName $ package desc)
-                        </> "exe" </> exeName exe
+                        </> "exe" </> name
     let cIncludeDirs = transitiveIncludeDirs transDeps
                         <> Set.map (packageSourceDir />)
                                  (Set.fromList $ ifNullDirs $ includeDirs bi)
@@ -296,16 +297,17 @@ buildExecutable confd exe = do
     moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
     let cFiles = map (packageSourceDir />) $ cSources bi
     cIncludes <- collectCIncludes desc bi (packageSourceDir />)
-    bin <- runCommand (output $ exeName exe)
+    bin <- runCommand (output name)
         $ message (display (package desc) ++ ": building executable "
-                    ++ exeName exe)
+                    ++ name)
         <> inputList moduleBootFiles
         <> inputList cIncludes
         <> ghcCommand ghc deps bi confd
-                [ "-o", pathOut (exeName exe)
+                [ "-o", pathOut name
                 , "-hidir", outputPrefix </> "hi"
                 , "-odir", outputPrefix </> "o"
                 , "-dynamic"
+                , "-threaded"
                 ]
                 (addIfMissing mainFile otherModuleFiles ++ cFiles)
     return BuiltExecutable
@@ -459,8 +461,7 @@ genPathsModule m pkg datas = do
        [ "{-# LANGUAGE CPP #-}"
         , "module " ++ display m ++ " (getDataFileName, getDataDir, version) where"
         , "import Data.Version (Version(..))"
-        , "version :: Version"
-        , "version = Version " ++ show (versionBranch
+        , "version = Version " ++ show (versionNumbers
                                             $ pkgVersion pkg)
                                 ++ ""
                         ++ " []" -- tags are deprecated
@@ -495,7 +496,7 @@ search ghc bi cIncludeDirs m srcDir
         let yFile = srcDir /> toFilePath m <.> ext
         exists yFile
         let relOutput = toFilePath m <.> "hs"
-        happy <- lift $ buildExecutableNamed (PackageName "happy") "happy"
+        happy <- lift $ buildExecutableNamed (mkPackageName "happy") "happy"
         lift . runCommand (output relOutput)
              $ progExe happy
                      ["-o", pathOut relOutput, pathIn yFile]
@@ -511,7 +512,8 @@ search ghc bi cIncludeDirs m srcDir
                        , pathIn hsc
                        ]
                        -- TODO: CPP options?
-                       ++ ["--cflag=" ++ f | f <- ccOptions bi]
+                       ++ ["--cflag=" ++ f | f <- ccOptions bi
+                                                    ++ cppOptions bi]
                        ++ ["-I" ++ pathIn f | f <- Set.toList cIncludeDirs]
                        ++ ["-D__GLASGOW_HASKELL__="
                              ++ cppVersion (ghcInstalledVersion ghc)])
@@ -521,7 +523,8 @@ search ghc bi cIncludeDirs m srcDir
         let xFile = srcDir /> toFilePath m <.> ext
         exists xFile
         let relOutput = toFilePath m <.> "hs"
-        alex <- lift $ buildExecutableNamed (PackageName "alex") "alex"
+        -- TODO: mkPackageName doesn't exist in older ones
+        alex <- lift $ buildExecutableNamed (mkPackageName "alex") "alex"
         lift . runCommand (output relOutput)
             $ progExe alex
                      ["-o", pathOut relOutput, pathIn xFile]
@@ -546,7 +549,7 @@ collectCIncludes desc bi pkgDir = do
     includeInputs <- findIncludeInputs pkgDir bi
     extras <- fmap concat $ mapM (matchArtifactGlob (pkgDir ""))
                             $ extraSrcFiles desc
-    return $ includeInputs ++ extras
+    return $ includeInputs ++ map (pkgDir "" />) extras
 
 findIncludeInputs :: (FilePath -> Artifact) -> BuildInfo -> Action [Artifact]
 findIncludeInputs pkgDir bi = filterM doesArtifactExist candidates
@@ -575,14 +578,15 @@ collectPlainDataFiles desc dir = do
     let out = "data-files"
     if null (dataFiles desc)
         then return Nothing
-        else fmap Just
-            . runCommand (output out)
-            $ prog "mkdir" ["-p", pathOut out]
-                <> foldMap (\f -> shadow (inDir /> f) (out </> f))
-                    (dataFiles desc)
+        else Just <$> do
+            files <- concat <$> mapM (matchArtifactGlob dir) (dataFiles desc)
+            runCommand (output out)
+                $ prog "mkdir" ["-p", pathOut out]
+                    <> foldMap (\f -> shadow (inDir /> f) (out </> f))
+                        files
 
 cppVersion :: Version -> String
-cppVersion v = case versionBranch v of
+cppVersion v = case versionNumbers v of
     (v1:v2:_) -> show v1 ++ if v2 < 10 then '0':show v2 else show v2
     _ -> error $ "cppVersion: " ++ display v
 

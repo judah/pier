@@ -29,7 +29,7 @@ import Distribution.Version
 import Distribution.Package
 import Distribution.System (buildPlatform, Platform(..), Arch(..), OS(..))
 import qualified Distribution.Text as Cabal
-import Development.Shake.Classes hiding (get)
+import Development.Shake.Classes
 import Development.Shake.FilePath
 import Development.Shake
 

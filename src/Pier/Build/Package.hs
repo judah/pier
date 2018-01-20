@@ -16,6 +16,7 @@ import Distribution.Version (withinRange)
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Parse
 import Distribution.Compiler
+import Distribution.Types.CondTree (CondBranch(..))
 
 import Pier.Build.Stackage
 import Pier.Core.Command
@@ -70,7 +71,7 @@ parseCabalFileInDir dir = do
     cabalFile <- findCabalFile dir
     cabalContents <- readArtifact cabalFile
     -- TODO: better error message when parse fails; and maybe warnings too?
-    case parsePackageDescription cabalContents of
+    case parseGenericPackageDescription cabalContents of
         ParseFailed err -> error $ show err
         ParseOk _ pkg -> return pkg
 
@@ -78,7 +79,7 @@ findCabalFile :: Artifact -> Action Artifact
 findCabalFile dir = do
     cabalFiles <- matchArtifactGlob dir "*.cabal"
     case cabalFiles of
-        [f] -> return f
+        [f] -> return (dir /> f)
         [] -> error $ "No *.cabal files found in " ++ show dir
         _ -> error $ "Multiple *.cabal files found: " ++ show cabalFiles
 
@@ -106,7 +107,8 @@ resolve plan flags node
     = sconcat
         $ condTreeData node :|
         [ resolve plan flags t
-        | (cond,ifTrue,ifFalse) <- condTreeComponents node
+        | CondBranch cond ifTrue ifFalse
+            <- condTreeComponents node
         , Just t <- [if isTrue plan flags cond
                         then Just ifTrue
                         else ifFalse]]

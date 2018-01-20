@@ -46,6 +46,11 @@ library:
     - wreq
     - yaml
 
+# Work around haskell/cabal#4739
+when:
+  - condition: os(darwin)
+    ghc-options: -optP-Wno-nonportable-include-path
+
 executables:
   pier:
     source-dirs: 'app'
