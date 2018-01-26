@@ -7,9 +7,8 @@ jobs:
       - checkout
       - restore_cache:
           keys:
-            - stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}
-            - stack-cache-{{ arch }}-{{ .Branch }}
-            - stack-cache-{{ arch }}-master
+            - stack-cache-v2-{{ arch }}-{{ .Branch }}
+            - stack-cache-v2-{{ arch }}-master
       - run:
           command: |
             echo 'export PATH=$HOME/.local/bin:$PATH' >> $BASH_ENV
@@ -34,7 +33,7 @@ jobs:
       - run: $(stack exec which pier) run hlint src
 
       - save_cache:
-            key: stack-cache-{{ arch }}-{{ .Branch }}-{{ epoch }}
+            key: stack-cache-v2-{{ arch }}-{{ .Branch }}-{{ epoch }}
             paths:
                 - ~/.stack
                 - .stack-work
