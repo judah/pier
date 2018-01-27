@@ -13,6 +13,8 @@ module Pier.Build.Stackage
     , parseGlobalPackagePath
     , PlanName(..)
     , BuildPlan(..)
+    , PlanPackage(..)
+    , Flags
     ) where
 
 import GHC.Generics
@@ -27,6 +29,7 @@ import qualified Data.Text as T
 import Data.Yaml
 import Distribution.Version
 import Distribution.Package
+import Distribution.PackageDescription (FlagName)
 import Distribution.System (buildPlatform, Platform(..), Arch(..), OS(..))
 import qualified Distribution.Text as Cabal
 import Development.Shake.Classes
@@ -46,9 +49,16 @@ instance FromJSON PlanName where
 
 data BuildPlan = BuildPlan
     { corePackageVersions :: HM.HashMap PackageName Version
-    , packageVersions :: HM.HashMap PackageName Version
+    , planPackages :: HM.HashMap PackageName PlanPackage
     , ghcVersion :: Version
     } deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
+
+data PlanPackage = PlanPackage
+    { planPackageVersion :: Version
+    , planPackageFlags :: Flags
+    } deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
+
+type Flags = HM.HashMap FlagName Bool
 
 instance FromJSON BuildPlan where
     parseJSON = withObject "Plan" $ \o -> do
@@ -56,11 +66,14 @@ instance FromJSON BuildPlan where
         coreVersions <- sys .: "core-packages"
         ghcVers <- sys .: "ghc-version"
         pkgs <- o .: "packages"
-        pkgVersions <- mapM (.: "version") pkgs
         return BuildPlan { corePackageVersions = coreVersions
-                         , packageVersions = pkgVersions
+                         , planPackages = pkgs
                          , ghcVersion = ghcVers
         }
+
+instance FromJSON PlanPackage where
+    parseJSON = withObject "PlanPackage" $ \o ->
+        PlanPackage <$> (o .: "version") <*> ((o .: "constraints") >>= (.: "flags"))
 
 buildPlanRules :: Rules ()
 buildPlanRules = addPersistent $ \(ReadPlan planName) -> do

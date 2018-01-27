@@ -18,6 +18,7 @@ instance Hashable a => Hashable (Set.Set a) where
     hashWithSalt k = hashWithSalt k . Set.toList
 
 instance Hashable FlagName
+instance NFData FlagName
 instance Hashable PackageId
 instance Hashable PackageName
 instance Hashable ComponentId
@@ -36,6 +37,12 @@ instance FromJSON PackageName where
 
 instance FromJSONKey PackageName where
     fromJSONKey = cabalKeyTextParser
+
+instance FromJSON FlagName where
+    parseJSON = fmap mkFlagName . parseJSON
+
+instance FromJSONKey FlagName where
+    fromJSONKey = FromJSONKeyText (mkFlagName . T.unpack)
 
 instance FromJSON PackageIdentifier where
     parseJSON = withText "PackageIdentifier" simpleParser

@@ -14,6 +14,7 @@ import Control.Applicative (liftA2, (<|>))
 import Control.Monad (filterM, guard, msum)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
+import qualified Data.HashMap.Strict as HM
 import Data.List (find, intercalate, nub)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromMaybe)
@@ -112,14 +113,14 @@ getConfiguredPackage p = do
     conf <- askConfig
     case resolvePackage conf p of
         Builtin pid -> return $ Left pid
-        Hackage pid -> do
+        Hackage pid flags -> do
             dir <- getPackageSourceDir pid
-            Right <$> getConfigured conf dir
-        Local dir _ -> Right <$> getConfigured conf dir
+            Right <$> getConfigured conf flags dir
+        Local dir _ -> Right <$> getConfigured conf HM.empty dir
   where
-    getConfigured :: Config -> Artifact -> Action ConfiguredPkg
-    getConfigured conf dir = do
-        (desc, dir') <- configurePackage (plan conf) dir
+    getConfigured :: Config -> Flags -> Artifact -> Action ConfiguredPkg
+    getConfigured conf flags dir = do
+        (desc, dir') <- configurePackage (plan conf) flags dir
         macros <- genCabalMacros conf desc
         return $ ConfiguredPkg desc dir' macros
 

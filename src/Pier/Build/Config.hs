@@ -104,7 +104,8 @@ askConfig = do
 
 data Resolved
     = Builtin PackageId
-    | Hackage PackageId
+    | Hackage PackageId Flags
+    -- TODO: flags for local packages as well
     | Local Artifact PackageId
     deriving (Show,Typeable,Eq,Generic)
 instance Hashable Resolved
@@ -121,13 +122,13 @@ resolvePackage conf n
                 = Local a $ PackageIdentifier n v
     -- Extra-deps override packages in the build plan:
     | Just v <- HM.lookup n (configExtraDeps conf)
-                = Hackage $ PackageIdentifier n v
-    | Just v <- HM.lookup n (packageVersions $ plan conf)
-                = Hackage $ PackageIdentifier n v
+                = Hackage (PackageIdentifier n v) HM.empty
+    | Just p <- HM.lookup n (planPackages $ plan conf)
+                = Hackage (PackageIdentifier n $ planPackageVersion p)
+                          (planPackageFlags p)
     | otherwise = error $ "Couldn't find package " ++ show n
-
 
 resolvedPackageId :: Resolved -> PackageIdentifier
 resolvedPackageId (Builtin p) = p
-resolvedPackageId (Hackage p) = p
+resolvedPackageId (Hackage p _) = p
 resolvedPackageId (Local _ p) = p

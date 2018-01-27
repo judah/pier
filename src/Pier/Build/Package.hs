@@ -40,10 +40,10 @@ getPackageSourceDir pkg = do
   where
     outDir = "package/raw" </> display pkg
 
-configurePackage :: BuildPlan -> Artifact -> Action (PackageDescription, Artifact)
-configurePackage plan packageSourceDir = do
+configurePackage :: BuildPlan -> Flags -> Artifact -> Action (PackageDescription, Artifact)
+configurePackage plan flags packageSourceDir = do
     gdesc <- parseCabalFileInDir packageSourceDir
-    let desc = flattenToDefaultFlags plan gdesc
+    let desc = flattenToDefaultFlags plan flags gdesc
     let name = display (packageName desc)
     case buildType desc of
         Just Configure -> do
@@ -72,7 +72,7 @@ parseCabalFileInDir dir = do
     cabalContents <- readArtifact cabalFile
     -- TODO: better error message when parse fails; and maybe warnings too?
     case parseGenericPackageDescription cabalContents of
-        ParseFailed err -> error $ show err
+        ParseFailed err -> error $ show err ++ "\n" ++ cabalContents
         ParseOk _ pkg -> return pkg
 
 findCabalFile :: Artifact -> Action Artifact
@@ -84,10 +84,11 @@ findCabalFile dir = do
         _ -> error $ "Multiple *.cabal files found: " ++ show cabalFiles
 
 flattenToDefaultFlags
-    :: BuildPlan -> GenericPackageDescription -> PackageDescription
-flattenToDefaultFlags plan gdesc = let
+    :: BuildPlan -> Flags -> GenericPackageDescription -> PackageDescription
+flattenToDefaultFlags plan planFlags gdesc = let
     desc0 = packageDescription gdesc
-    flags = HM.fromList [(flagName f, flagDefault f)
+    -- Bias towards plan flags (since they override the defaults)
+    flags = planFlags `HM.union` HM.fromList [(flagName f, flagDefault f)
                         | f <- genPackageFlags gdesc
                         ]
     in desc0
