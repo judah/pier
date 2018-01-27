@@ -548,9 +548,14 @@ findBootFile hs = do
 collectCIncludes :: PackageDescription -> BuildInfo -> (FilePath -> Artifact) -> Action [Artifact]
 collectCIncludes desc bi pkgDir = do
     includeInputs <- findIncludeInputs pkgDir bi
-    extras <- fmap concat $ mapM (matchArtifactGlob (pkgDir ""))
+    extraSrcs <- fmap concat $ mapM (matchArtifactGlob (pkgDir ""))
                             $ extraSrcFiles desc
-    return $ includeInputs ++ map (pkgDir "" />) extras
+    extraTmps <- fmap catMaybes . mapM ((\f -> doesArtifactExist f >>= \case
+                                                True -> return (Just f)
+                                                False -> return Nothing)
+                                        . pkgDir)
+                        $ extraTmpFiles desc
+    return $ includeInputs ++ map (pkgDir "" />) extraSrcs ++ extraTmps
 
 findIncludeInputs :: (FilePath -> Artifact) -> BuildInfo -> Action [Artifact]
 findIncludeInputs pkgDir bi = filterM doesArtifactExist candidates
