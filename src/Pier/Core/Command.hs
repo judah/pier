@@ -174,15 +174,20 @@ newtype Hash = Hash B.ByteString
     deriving (Show, Eq, Ord, Binary, NFData, Hashable, Generic)
 
 makeHash :: String -> Hash
-makeHash = Hash . fixBase64Path . encode . hash . T.encodeUtf8 . T.pack
+makeHash = Hash . fixChars . dropPadding . encode . hash . T.encodeUtf8 . T.pack
   where
     -- Remove slashes, since the strings will appear in filepaths.
-    -- Also remove some other characters to reduce shell errors.
-    fixBase64Path = BC.map $ \case
+    -- Also remove `+` to reduce shell errors.
+    fixChars = BC.map $ \case
                                 '/' -> '-'
                                 '+' -> '.'
-                                '=' -> '_'
                                 c -> c
+    -- Padding just adds noise, since we don't have length requirements (and indeed
+    -- every sha256 hash is 32 bytes)
+    dropPadding c
+        | BC.last c == '=' = BC.init c
+        -- Shouldn't happen since each hash is the same length:
+        | otherwise = c
 
 hashDir :: Hash -> FilePath
 hashDir h = artifactDir </> hashString h

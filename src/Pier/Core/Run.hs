@@ -25,4 +25,6 @@ runPier = shakeArgs shakeOptions
                             }
 
 cleanAll :: Rules ()
-cleanAll = action $ removeFilesAfter pierDir ["//"]
+cleanAll = action $ do
+            putNormal $ "Removing " ++ pierDir
+            removeFilesAfter pierDir ["//"]
