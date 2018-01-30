@@ -6,6 +6,8 @@ Pier is a command-line tool for building Haskell projects.
 
 Its main features:
 
+- Hermetic builds: each build step runs in a temporary directory with a limited set of inputs
+- All generated files are immutable (read-only) and stored within a single directory
 - Uses `.cabal` files to configure local packages
 - Use Stackage's package sets to specify dependencies
 - Invokes `ghc` directly, reimplementing the build logic from (nearly) scratch
@@ -92,7 +94,14 @@ In case of ambiguity, `--` can be used to separate arguments of `pier` from argu
 
 # Output File Locations
 
-`pier` saves most output files in a directory called `_pier`, located in the same directory as `pier.yaml`.  That output directory can generally be ignored (for example, with a `.gitignore` directive).
+`pier` saves most output files in a directory called `_pier`, located in the
+same directory as `pier.yaml`.  That output directory can generally be ignored
+(for example, with a `.gitignore` directive).
+
+Each individual command's outputs (for example, from a single invocation ofv
+`ghc`) live in a separate directory `_pier/artifact/{HASH}`.  The `{HASH}` is
+a string that depends on the command's arguments and inputs, as well as its dependencies
+(commands that generated its inputs).
 
 If necessary, `pier clean-all` will delete the `_pier` folder (and thus wipe out the entire build).  That folder can also be deleted manually with `chmod -R u+w _pier && rm -rf _pier`.  (Files and folders in `_pier` are marked as read-only.)
 
@@ -111,9 +120,9 @@ Downloaded files (for example, package release tarballs) are saved under `$HOME/
 
 In particular, it does not:
 
-- Call the `stack` executable or link against the `stack` package
+- Call the `stack` executable or depend on the `stack` library
 - Call the `cabal` binary
-- Import any library code under `Distribution.Simple`
+- Import `Distribution.Simple{.*}` from the `Cabal` library
 
 
 ### I heard you like `pier`, so I built `pier` with `pier`.
