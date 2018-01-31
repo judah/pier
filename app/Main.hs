@@ -191,10 +191,10 @@ main = do
     (root, pierYamlFile)
         <- splitFileName <$> findPierYamlFile (getLast $ pierYaml commonOpts)
     setCurrentDirectory root
-    withArgs (shakeFlags commonOpts) $ runPier $ do
+    withArgs (shakeFlags commonOpts) $ runPier $ \disp -> do
         buildPlanRules
         buildPackageRules
-        commandRules
+        commandRules disp
         downloadRules
         installGhcRules
         configRules pierYamlFile

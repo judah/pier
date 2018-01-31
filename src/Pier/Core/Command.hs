@@ -275,8 +275,8 @@ runCommand_ = runCommand (pure ())
 -- through symlinks.  Either just always do a `lndir`, or use real
 -- sandboxes.
 
-commandRules :: Rules ()
-commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
+commandRules :: Display -> Rules ()
+commandRules disp = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
     h <- commandHash cmdQ
     let outDir = hashDir h
     -- Skip if the output directory already exists; we'll produce it atomically
