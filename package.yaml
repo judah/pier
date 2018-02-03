@@ -20,6 +20,7 @@ default-extensions:
   - LambdaCase
   - FlexibleContexts
   - DeriveGeneric
+  - NondecreasingIndentation
   - ScopedTypeVariables
   - StandaloneDeriving
   - TupleSections
@@ -37,13 +38,14 @@ library:
     - containers
     - cryptohash-sha256
     - hashable
-    - lens
+    - http-client
+    - http-client-tls
+    - http-types
     - process
     - temporary
     - text
     - transformers
     - unix
-    - wreq
     - yaml
 
 # Work around haskell/cabal#4739

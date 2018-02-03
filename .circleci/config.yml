@@ -28,7 +28,7 @@ jobs:
       - run: weeder . --build
 
       # Run pier on some sample packages
-      - run: $(stack exec which pier) build lens pandoc c2hs unix-time xhtml pier -j4
+      - run: $(stack exec which pier) build lens pandoc c2hs unix-time xhtml wreq pier -j4
       - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
       - run: $(stack exec which pier) run hlint src
 

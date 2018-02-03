@@ -10,8 +10,9 @@ import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath
 import GHC.Generics
-import Network.Wreq as Wreq
-import Control.Lens ((^.))
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
+import Network.HTTP.Types.Status
 import qualified System.Directory as Directory
 import System.IO.Temp as Temp
 import qualified System.IO as IO
@@ -41,7 +42,9 @@ askDownload = askPersistent
 
 -- TODO: make this its own rule type?
 downloadRules :: Rules ()
-downloadRules = addPersistent $ \d -> do
+downloadRules = do
+    manager <- liftIO $ newManager tlsManagerSettings
+    addPersistent $ \d -> do
     -- Download to a shared location under $HOME/.pier, if it doesn't
     -- already exist (atomically); then make an artifact that symlinks to it.
     downloadsDir <- liftIO pierDownloadsDir
@@ -53,8 +56,13 @@ downloadRules = addPersistent $ \d -> do
         liftIO $ withSystemTempFile (takeFileName $ downloadName d)
                     $ \tmp h -> do
                         IO.hClose h
-                        r <- Wreq.get $ downloadUrlPrefix d </> downloadName d
-                        liftIO $ L.writeFile tmp $ r ^. responseBody
+                        let url = downloadUrlPrefix d </> downloadName d
+                        req <- parseRequest url
+                        resp <- httpLbs req manager
+                        unless (statusIsSuccessful . responseStatus $ resp)
+                            $ error $ "Unable to download: " ++ show url
+                                    ++ ": " ++ show (responseStatus resp)
+                        liftIO . L.writeFile tmp . responseBody $ resp
                         createParentIfMissing result
                         Directory.renameFile tmp result
     return $ externalFile result
