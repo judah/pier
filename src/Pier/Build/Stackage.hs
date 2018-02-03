@@ -104,7 +104,7 @@ askBuildPlan :: PlanName -> Action BuildPlan
 askBuildPlan = askPersistent . ReadPlan
 
 
-newtype InstallGhc = InstallGhc Version
+data InstallGhc = InstallGhc Version [PackageName]
     deriving (Show, Typeable, Eq, Hashable, Binary, NFData, Generic)
 
 -- | TODO: make the below functions that use Version take InstalledGhc directly instead
@@ -127,8 +127,10 @@ packageConfD = "package.conf.d"
 ghcArtifacts :: InstalledGhc -> Set.Set Artifact
 ghcArtifacts g = Set.fromList [ghcInstallDir g, globalPackageDb g]
 
-askInstalledGhc :: Version -> Action InstalledGhc
-askInstalledGhc = askPersistent . InstallGhc
+askInstalledGhc :: BuildPlan -> Action InstalledGhc
+askInstalledGhc plan
+    = askPersistent $ InstallGhc (ghcVersion plan)
+                    $ HM.keys $ corePackageVersions plan
 
 ghcLibRoot :: InstalledGhc -> Artifact
 ghcLibRoot g = ghcLibRootA (ghcInstalledVersion g) (ghcInstallDir g)
@@ -179,7 +181,7 @@ hsc2hsProg ghc args =
     template = ghcLibRoot ghc /> "template-hsc.h"
 
 installGhcRules :: Rules ()
-installGhcRules = addPersistent $ \(InstallGhc version) -> do
+installGhcRules = addPersistent $ \(InstallGhc version corePkgs) -> do
     setupYaml <- askDownload Download
                     { downloadFilePrefix = "stackage/setup"
                     , downloadName = "stack-setup-2.yaml"
@@ -191,7 +193,7 @@ installGhcRules = addPersistent $ \(InstallGhc version) -> do
         Left err -> throw err
         Right x
             | Just download <- HM.lookup version (ghcVersions x)
-                -> downloadAndInstallGHC version download
+                -> downloadAndInstallGHC version corePkgs download
             | otherwise -> error $ "Couldn't find GHC version" ++ Cabal.display version
   where
     setupUrl = "https://raw.githubusercontent.com/fpco/stackage-content/master/stack"
@@ -237,8 +239,9 @@ platformKey = case buildPlatform of
     _ -> error $ "Unrecognized platform: " ++ Cabal.display buildPlatform
 
 
-downloadAndInstallGHC :: Version -> DownloadInfo -> Action InstalledGhc
-downloadAndInstallGHC version download = do
+downloadAndInstallGHC
+    :: Version -> [PackageName] -> DownloadInfo -> Action InstalledGhc
+downloadAndInstallGHC version corePkgs download = do
     -- TODO: reenable this once we've fixed the issue with nondetermistic
     -- temp file locations.
     -- rerunIfCleaned
@@ -264,20 +267,23 @@ downloadAndInstallGHC version download = do
                 <> progTemp (unpackedDir </> "configure")
                         ["--prefix=${TMPDIR}/" ++ pathOut installDir]
                 <> prog "make" ["install"])
-    fixed <- makeRelativeGlobalDb
+    fixed <- makeRelativeGlobalDb corePkgs
                     InstalledGhc { ghcInstallDir = installed
                                  , ghcInstalledVersion = version
                                  }
     runCommand_ $ ghcPkgProg fixed ["check"]
     return fixed
 
-makeRelativeGlobalDb :: InstalledGhc -> Action InstalledGhc
-makeRelativeGlobalDb ghc = do
+makeRelativeGlobalDb :: [PackageName] -> InstalledGhc -> Action InstalledGhc
+makeRelativeGlobalDb corePkgs ghc = do
+    let corePkgsSet = Set.fromList corePkgs
     -- List all packages, excluding Cabal which stack doesn't consider a "core"
     -- package.
     -- TODO: if our package ids included a hash, this wouldn't be as big a problem
     -- because two versions of the same package could exist simultaneously.
-    builtinPackages <- fmap (filter (/= "Cabal") . words) $ runCommandStdout
+    builtinPackages <- fmap (filter ((`Set.member` corePkgsSet) . mkPackageName)
+                                . words)
+                        . runCommandStdout
                         $ ghcPkgProg ghc
                             ["list", "--global", "--names-only",
                              "--simple-output" ]

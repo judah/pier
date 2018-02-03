@@ -35,7 +35,8 @@ getPackageSourceDir :: PackageIdentifier -> Action Artifact
 getPackageSourceDir pkg = do
     tarball <- downloadCabalPackage pkg
     runCommand (output outDir)
-        $ prog "tar" ["-xzf", pathIn tarball, "-C", pathOut (takeDirectory outDir)]
+        $ message ("Unpacking " ++ display pkg)
+        <> prog "tar" ["-xzf", pathIn tarball, "-C", pathOut (takeDirectory outDir)]
         <> input tarball
   where
     outDir = "package/raw" </> display pkg

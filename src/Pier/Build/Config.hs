@@ -84,7 +84,7 @@ askConfig :: Action Config
 askConfig = do
     yaml <- askPersistent PierYamlQ
     p <- askBuildPlan (resolver yaml)
-    ghc <- askInstalledGhc (ghcVersion p)
+    ghc <- askInstalledGhc p
     -- TODO: don't parse local package defs twice.
     -- We do it again later so the full PackageDescription
     -- doesn't need to get saved in the cache.
