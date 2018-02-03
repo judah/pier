@@ -317,10 +317,11 @@ buildExecutable confd exe = do
                                     datas
         }
   where
-    pathsMod = fromString $ "Paths_" ++ display (packageName confd)
+    pathsMod = fromString $ "Paths_" ++ fixDashes (display $ packageName confd)
     addIfMissing m ms
         | m `elem` ms = ms
         | otherwise = m : ms
+    fixDashes = map $ \c -> if c == '-' then '_' else c
 
 
 -- TODO: issue if this doesn't preserve ".lhs" vs ".hs", for example?
