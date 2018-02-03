@@ -7,4 +7,4 @@ packages:
   - '.'
 
 ghc-options:
-  "$locals": -Wall
+  "$locals": -Wall -Werror
