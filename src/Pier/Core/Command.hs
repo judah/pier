@@ -290,7 +290,9 @@ commandRules disp = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -
         liftIO $ collectInputs inps tmp
         mapM_ (createParentIfMissing . tmpOutPath) outs
 
-        out <- B.concat <$> mapM (readProg tmp) progs
+        k <- liftIO $ newKey disp
+        out <- B.concat <$> mapM (readProg disp k tmp) progs
+        liftIO $ removeKey disp k
         createParentIfMissing $ tmpOutPath stdoutPath
         liftIO $ B.writeFile (tmpOutPath stdoutPath) out
 
@@ -337,9 +339,11 @@ finalizeFrozen src dest = do
 -- TODO: more flexibility around the env vars
 -- Also: limit valid parameters for the *prog* binary (rather than taking it
 -- from the PATH that the `pier` executable sees).
-readProg :: FilePath -> Prog -> Action B.ByteString
-readProg _ (Message s) = putNormal s >> return B.empty
-readProg dir (Prog p as cwd) = do
+readProg :: Display -> Key -> FilePath -> Prog -> Action B.ByteString
+readProg disp key _ (Message s) = do
+    liftIO $ setKeyMessage disp key s
+    return B.empty
+readProg _ _ dir (Prog p as cwd) = do
     let unStdout (Stdout out) = out
     -- hack around shake weirdness w.r.t. relative binary paths
     let p' = case p of
@@ -354,7 +358,7 @@ readProg dir (Prog p as cwd) = do
                     , EchoStderr False
                     ]
                     p' (map (spliceTempDir dir) as)
-readProg dir (Shadow a0 f0) = liftIO $ do
+readProg _ _ dir (Shadow a0 f0) = liftIO $ do
     let out = dir </> pathOut f0
     createParentIfMissing out
     rootDir <- Directory.getCurrentDirectory

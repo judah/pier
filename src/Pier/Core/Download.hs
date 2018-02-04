@@ -19,6 +19,7 @@ import qualified System.IO as IO
 import Pier.Core.Directory
 import Pier.Core.Command
 import Pier.Core.Persistent
+import Pier.Core.Run
 
 -- | Downloads @downloadUrlPrefix </> downloadName@ to
 -- @downloadFilePrefix </> downloadName@.
@@ -40,23 +41,25 @@ askDownload :: Download -> Action Artifact
 askDownload = askPersistent
 
 -- TODO: make this its own rule type?
-downloadRules :: Rules ()
-downloadRules = addPersistent $ \d -> do
+downloadRules :: Display -> Rules ()
+downloadRules disp = addPersistent $ \d -> liftIO $ do
     -- Download to a shared location under $HOME/.pier, if it doesn't
     -- already exist (atomically); then make an artifact that symlinks to it.
-    downloadsDir <- liftIO pierDownloadsDir
+    downloadsDir <- pierDownloadsDir
     let result = downloadsDir </> downloadFilePrefix d
                                         </> downloadName d
-    exists <- liftIO $ Directory.doesFileExist result
+    exists <- Directory.doesFileExist result
     unless exists $ do
-        putNormal $ "Downloading " ++ downloadName d
-        liftIO $ withSystemTempFile (takeFileName $ downloadName d)
+        k <- newKey disp
+        setKeyMessage disp k $ "Downloading " ++ downloadName d
+        withSystemTempFile (takeFileName $ downloadName d)
                     $ \tmp h -> do
                         IO.hClose h
                         r <- Wreq.get $ downloadUrlPrefix d </> downloadName d
                         liftIO $ L.writeFile tmp $ r ^. responseBody
                         createParentIfMissing result
                         Directory.renameFile tmp result
+        removeKey disp k
     return $ externalFile result
 
 pierDownloadsDir :: IO FilePath

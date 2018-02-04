@@ -142,13 +142,13 @@ findPierYamlFile Nothing = getCurrentDirectory >>= loop
                     ++ " from the current directory"
             | otherwise -> loop parent
 
-runWithOptions :: CommandOpt -> Rules ()
-runWithOptions Clean = cleaning True
-runWithOptions CleanAll = do
+runWithOptions :: Display -> CommandOpt -> Rules ()
+runWithOptions _ Clean = cleaning True
+runWithOptions _ CleanAll = do
     liftIO unfreezeArtifacts
     cleaning True
     cleanAll
-runWithOptions (Build targets) = do
+runWithOptions disp (Build targets) = do
     cleaning False
     action $ do
         -- Build everything if the targets list is empty
@@ -156,8 +156,11 @@ runWithOptions (Build targets) = do
                         then map (,TargetAll) . HM.keys . localPackages
                                 <$> askConfig
                         else pure targets
+        k <- liftIO $ newKey disp
+        liftIO $ setKeyMessage disp k $ "Building " ++ show targets'
         forP targets' (uncurry buildTarget)
-runWithOptions (Run sandbox (pkg, target) args) = do
+
+runWithOptions _ (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
@@ -166,7 +169,7 @@ runWithOptions (Run sandbox (pkg, target) args) = do
                                     (builtBinary exe) args
             NoSandbox -> quietly $ command_ [WithStderr False]
                             (pathIn $ builtBinary exe) args
-runWithOptions (Which (pkg, target)) = do
+runWithOptions _ (Which (pkg, target)) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
@@ -195,10 +198,10 @@ main = do
         buildPlanRules
         buildPackageRules
         commandRules disp
-        downloadRules
+        downloadRules disp
         installGhcRules
         configRules pierYamlFile
-        runWithOptions cmdOpt
+        runWithOptions disp cmdOpt
 
 -- TODO: move into Build.hs
 data Target
