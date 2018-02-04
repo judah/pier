@@ -48,6 +48,11 @@ cleanAll = action $ do
             putNormal $ "Removing " ++ pierDir
             removeFilesAfter pierDir ["//"]
 
+-- TODO: protect against display being too short of width
+-- TODO: move to another module
+-- TODO: don't stop indicator at the end... 
+-- TODO: protect against terminal without movements
+-- TODO: protect against no terminal (and allow explicit opt-out or opt-in)
 data DisplayState = DisplayState
     { _displayKey :: !Key
     , displayMessages :: !(Map.Map Key (Text, Indicator))
@@ -123,7 +128,6 @@ swapState (Display state term) f = modifyMVar state $ \old -> do
 swapState_ :: Display -> (DisplayState -> DisplayState) -> IO ()
 swapState_ d f = swapState d ((, ()) . f)
 
--- TODO: protect against display being too short
 showDiff :: Term -> Map Key (Text, Indicator) -> Map Key (Text, Indicator) -> IO ()
 showDiff term old new
     | old == new = return ()
