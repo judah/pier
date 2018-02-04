@@ -14,19 +14,24 @@ import Development.Shake.Classes
 import Development.Shake.Rule
 import GHC.Generics
 
-newtype PersistentQ question = PersistentQ question
-    deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
+newtype Persistent question = Persistent question
+    deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
+
+-- Improve error messages by just forwarding the instance of the
+-- wrapped type.
+instance Show q => Show (Persistent q) where
+    show (Persistent q) = show q
 
 newtype PersistentA answer = PersistentA { unPersistentA :: answer }
     deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
 
-type instance RuleResult (PersistentQ q) = PersistentA (RuleResult q)
+type instance RuleResult (Persistent q) = PersistentA (RuleResult q)
 
 addPersistent
     :: (RuleResult q ~ a, ShakeValue q, ShakeValue a)
     => (q -> Action a)
     -> Rules ()
-addPersistent act = addBuiltinRule noLint $ \(PersistentQ q) old depsChanged
+addPersistent act = addBuiltinRule noLint $ \(Persistent q) old depsChanged
                     -> case old of
     Just old' | not depsChanged
               , Just val <- decode' old'
@@ -56,14 +61,14 @@ askPersistent
     => q
     -> Action a
 askPersistent question = do
-    PersistentA answer <- apply1 $ PersistentQ question
+    PersistentA answer <- apply1 $ Persistent question
     return answer
 
 askPersistents
     :: (RuleResult q ~ a, ShakeValue q, ShakeValue a)
     => [q]
     -> Action [a]
-askPersistents = fmap (map unPersistentA) . apply . map PersistentQ
+askPersistents = fmap (map unPersistentA) . apply . map Persistent
 
 
 data Cleaner = Cleaner

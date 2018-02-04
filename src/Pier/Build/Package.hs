@@ -51,6 +51,7 @@ configurePackage plan flags packageSourceDir = do
             let configuredDir = name
             configuredPackage <- runCommand (output configuredDir)
                 $ shadow packageSourceDir configuredDir
+                <> message ("Configuring " ++ name)
                 <> withCwd (pathOut configuredDir) (progTemp (configuredDir </> "configure") [])
             let buildInfoFile = configuredPackage />
                                     (name <.> "buildinfo")

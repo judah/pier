@@ -15,6 +15,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Maybe (fromMaybe)
 import Data.Yaml
 import Distribution.Package
+import Distribution.Text (display)
 import Distribution.Version
 import Development.Shake
 import Development.Shake.Classes
@@ -64,13 +65,15 @@ instance FromJSON PierYaml where
             }
 
 data PierYamlQ = PierYamlQ
-    deriving (Show, Eq, Typeable, Generic)
+    deriving (Eq, Typeable, Generic)
 instance Hashable PierYamlQ
 instance Binary PierYamlQ
 instance NFData PierYamlQ
 
 type instance RuleResult PierYamlQ = PierYaml
 
+instance Show PierYamlQ where
+    show _ = "Pier YAML configuration"
 
 data Config = Config
     { plan :: BuildPlan
@@ -126,7 +129,7 @@ resolvePackage conf n
     | Just p <- HM.lookup n (planPackages $ plan conf)
                 = Hackage (PackageIdentifier n $ planPackageVersion p)
                           (planPackageFlags p)
-    | otherwise = error $ "Couldn't find package " ++ show n
+    | otherwise = error $ "Couldn't find package " ++ show (display n)
 
 resolvedPackageId :: Resolved -> PackageIdentifier
 resolvedPackageId (Builtin p) = p

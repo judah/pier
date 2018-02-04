@@ -97,15 +97,23 @@ planUrlPrefix (PlanName name)
     nightlyBuildPlansUrl = "https://raw.githubusercontent.com/fpco/stackage-nightly/master/"
 
 newtype ReadPlan = ReadPlan PlanName
-    deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
+    deriving (Typeable,Eq,Hashable,Binary,NFData,Generic)
 type instance RuleResult ReadPlan = BuildPlan
+
+instance Show ReadPlan where
+    show (ReadPlan p) = "Read build plan: " ++ renderPlanName p
 
 askBuildPlan :: PlanName -> Action BuildPlan
 askBuildPlan = askPersistent . ReadPlan
 
 
 data InstallGhc = InstallGhc Version [PackageName]
-    deriving (Show, Typeable, Eq, Hashable, Binary, NFData, Generic)
+    deriving (Typeable, Eq, Hashable, Binary, NFData, Generic)
+
+instance Show InstallGhc where
+    show (InstallGhc v pn) = "GHC, version " ++ Cabal.display v
+                            ++ ", built-in packages "
+                            ++ List.intercalate ", " (map Cabal.display pn)
 
 -- | TODO: make the below functions that use Version take InstalledGhc directly instead
 data InstalledGhc = InstalledGhc
