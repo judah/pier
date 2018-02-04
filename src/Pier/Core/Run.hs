@@ -24,6 +24,7 @@ import Data.Text (Text, pack, unpack)
 import Development.Shake
 import Development.Shake.FilePath
 import System.Console.Terminfo
+import System.IO (hIsTerminalDevice, stdout)
 
 pierDir :: FilePath
 pierDir = "_pier"
@@ -50,9 +51,8 @@ cleanAll = action $ do
 
 -- TODO: protect against display being too short of width
 -- TODO: move to another module
--- TODO: don't stop indicator at the end... 
--- TODO: protect against terminal without movements
--- TODO: protect against no terminal (and allow explicit opt-out or opt-in)
+-- TODO: don't stop indicator at the end...
+-- TODO: (allow explicit opt-out or opt-in from display)
 data DisplayState = DisplayState
     { _displayKey :: !Key
     , displayMessages :: !(Map.Map Key (Text, Indicator))
@@ -62,6 +62,7 @@ newtype Indicator = Indicator Int
     deriving (Show, Eq)
 
 data Display = Display (MVar DisplayState) Term
+             | Boring
 
 data Term = Term
     { termTerminal :: Terminal
@@ -70,20 +71,23 @@ data Term = Term
     , termNewLine :: TermOutput
     }
 
-newTerm :: IO Term
+newTerm :: IO (Maybe Term)
 newTerm = do
-    t <- setupTermFromEnv
-    -- TODO: catch better
-    let Just cr = getCapability t carriageReturn
-    let Just clear = getCapability t clearEOL
-    let Just u = getCapability t moveUp
-    let Just nl = getCapability t newline
-    return $ Term
-        { termTerminal = t
-        , termClearLine = cr <#> clear
-        , termMoveUp = u 1
-        , termNewLine = nl
-        }
+    isTerm <- hIsTerminalDevice stdout
+    if not isTerm
+        then return Nothing else do
+        t <- setupTermFromEnv
+        return $ getCapability t $ do
+            cr <- carriageReturn
+            clear <- clearEOL
+            up <- moveUp
+            nl <- newline
+            return Term
+                { termTerminal = t
+                , termClearLine = cr <#> clear
+                , termMoveUp = up 1
+                , termNewLine = nl
+                }
 
 newtype Key = Key Integer
     deriving (Show, Eq, Ord)
@@ -92,24 +96,31 @@ nextKey :: Key -> Key
 nextKey (Key n) = Key (n+1)
 
 newKey :: Display -> IO Key
+newKey Boring = return $ Key 0
 newKey disp = swapState disp $ \(DisplayState k old) ->
             (DisplayState (nextKey k) old, k)
 
 -- TODO: take Text?
 setKeyMessage :: Display -> Key -> String -> IO ()
+setKeyMessage Boring _ s = putStrLn s
 setKeyMessage disp k msg = swapState_ disp
     $ \(DisplayState k' old)
         -> DisplayState k' $ Map.insert k (pack msg, Indicator 0) old
 
 removeKey :: Display -> Key -> IO ()
+removeKey Boring _ = return ()
 removeKey disp k = swapState_ disp
                     $ \(DisplayState k' old) -> DisplayState k' $ Map.delete k old
 
 withDisplay :: (Display -> IO a) -> IO a
 withDisplay act = do
-    d <- Display <$> newMVar empty <*> newTerm
-    a <- async $ forever $ pokeDisplay d >> threadDelay 1000000
-    act d `finally` (swapState_ d (const empty) >> cancel a)
+    t <- newTerm
+    case t of
+        Nothing -> act Boring
+        Just t' -> do
+            d <- flip Display t' <$> newMVar empty
+            a <- async $ forever $ pokeDisplay d >> threadDelay 1000000
+            act d `finally` (swapState_ d (const empty) >> cancel a)
   where
     -- TODO: this is the wrong behavior; we should preserve the most recent
     -- messages
@@ -118,6 +129,7 @@ withDisplay act = do
             -> DisplayState k $ fmap (second nextIndicator) old
 
 swapState :: Display -> (DisplayState -> (DisplayState, a)) -> IO a
+swapState Boring _ = error "swapState"
 swapState (Display state term) f = modifyMVar state $ \old -> do
     let (new, x) = f old
     let oldMsgs = displayMessages old
