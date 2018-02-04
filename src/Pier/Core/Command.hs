@@ -36,20 +36,12 @@ module Pier.Core.Command
     , createDirectoryA
     ) where
 
-import Crypto.Hash.SHA256
 import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class
-import qualified Data.Binary as Binary
-import qualified Data.ByteString as B
+import Crypto.Hash.SHA256
 import Data.ByteString.Base64
-import qualified Data.ByteString.Char8 as BC
-import qualified Data.List as List
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import Data.Set (Set)
 import Data.Semigroup
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
+import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes hiding (hash)
 import Development.Shake.FilePath
@@ -58,12 +50,21 @@ import GHC.Generics
 import System.Directory as Directory
 import System.Exit (ExitCode(..))
 import System.IO.Temp
-import System.Process.Internals (translate)
 import System.Posix.Files (createSymbolicLink)
+import System.Process.Internals (translate)
+
+import qualified Data.Binary as Binary
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
+import qualified Data.List as List
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import Pier.Core.Directory
-import Pier.Core.Run
 import Pier.Core.Persistent
+import Pier.Core.Run
 import Pier.Orphans ()
 
 -- TODO: reconsider names in this module

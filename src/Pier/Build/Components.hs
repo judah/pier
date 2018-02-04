@@ -14,27 +14,28 @@ import Control.Applicative (liftA2, (<|>))
 import Control.Monad (filterM, guard, msum)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
-import qualified Data.HashMap.Strict as HM
 import Data.List (find, intercalate, nub)
-import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Semigroup
-import GHC.Generics hiding (packageName)
+import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath hiding (exe)
+import Distribution.Compiler
 import Distribution.ModuleName
-import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
 import Distribution.Package
 import Distribution.PackageDescription hiding (libName)
-import qualified Distribution.InstalledPackageInfo as IP
-import Distribution.Text
+import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
 import Distribution.System (buildOS, OS(..))
+import Distribution.Text
 import Distribution.Version (Version, versionNumbers)
-import Distribution.Compiler
-import qualified Data.Set as Set
-import Data.Set (Set)
+import GHC.Generics hiding (packageName)
 import Language.Haskell.Extension
+
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map as Map
+import qualified Data.Set as Set
+import qualified Distribution.InstalledPackageInfo as IP
 
 import Pier.Build.Custom
 import Pier.Build.Config

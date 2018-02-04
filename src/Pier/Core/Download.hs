@@ -5,8 +5,6 @@ module Pier.Core.Download
     ) where
 
 import Control.Monad (unless)
-import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as L
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath
@@ -14,12 +12,15 @@ import GHC.Generics
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
 import Network.HTTP.Types.Status
-import qualified System.Directory as Directory
 import System.IO.Temp as Temp
+
+import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy as L
+import qualified System.Directory as Directory
 import qualified System.IO as IO
 
-import Pier.Core.Directory
 import Pier.Core.Command
+import Pier.Core.Directory
 import Pier.Core.Persistent
 
 -- | Downloads @downloadUrlPrefix </> downloadName@ to

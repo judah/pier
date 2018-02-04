@@ -5,18 +5,19 @@ module Pier.Build.Package
     ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.HashMap.Strict as HM
 import Data.Semigroup
 import Development.Shake
 import Development.Shake.FilePath
+import Distribution.Compiler
 import Distribution.Package
-import Distribution.Text (display)
-import Distribution.System (buildOS, buildArch)
-import Distribution.Version (withinRange)
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Parse
-import Distribution.Compiler
+import Distribution.System (buildOS, buildArch)
+import Distribution.Text (display)
 import Distribution.Types.CondTree (CondBranch(..))
+import Distribution.Version (withinRange)
+
+import qualified Data.HashMap.Strict as HM
 
 import Pier.Build.Stackage
 import Pier.Core.Command

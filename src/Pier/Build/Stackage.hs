@@ -17,24 +17,25 @@ module Pier.Build.Stackage
     , Flags
     ) where
 
-import GHC.Generics
+import Control.Exception (throw)
 import Data.Binary.Orphans ()
 import Data.Monoid ((<>))
-import Control.Exception (throw)
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List as List
-import qualified Data.Set as Set
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Yaml
-import Distribution.Version
+import Development.Shake
+import Development.Shake.Classes
+import Development.Shake.FilePath
 import Distribution.Package
 import Distribution.PackageDescription (FlagName)
 import Distribution.System (buildPlatform, Platform(..), Arch(..), OS(..))
+import Distribution.Version
+import GHC.Generics
+
+import qualified Data.HashMap.Strict as HM
+import qualified Data.List as List
+import qualified Data.Set as Set
+import qualified Data.Text as T
 import qualified Distribution.Text as Cabal
-import Development.Shake.Classes
-import Development.Shake.FilePath
-import Development.Shake
 
 import Pier.Core.Command
 import Pier.Core.Download

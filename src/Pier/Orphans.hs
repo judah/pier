@@ -4,15 +4,15 @@
 module Pier.Orphans () where
 
 import Data.Aeson.Types
-import qualified Data.Text as T
 import Development.Shake.Classes
-import qualified Data.Set as Set
-import Distribution.PackageDescription
 import Distribution.Package
-import qualified Distribution.Text as Cabal
-
-import Distribution.Version
+import Distribution.PackageDescription
 import Distribution.Utils.ShortText
+import Distribution.Version
+
+import qualified Data.Set as Set
+import qualified Data.Text as T
+import qualified Distribution.Text as Cabal
 
 instance Hashable a => Hashable (Set.Set a) where
     hashWithSalt k = hashWithSalt k . Set.toList

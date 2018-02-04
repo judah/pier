@@ -3,7 +3,6 @@ module Main (main) where
 
 import Control.Exception (bracket)
 import Control.Monad (void)
-import qualified Data.HashMap.Strict as HM
 import Data.List.Split (splitOn)
 import Data.Monoid (Last(..))
 import Data.Semigroup (Semigroup, (<>))
@@ -15,13 +14,15 @@ import Options.Applicative hiding (action)
 import System.Directory as Directory
 import System.Environment
 
+import qualified Data.HashMap.Strict as HM
+
+import Pier.Build.Components
 import Pier.Build.Config
 import Pier.Build.Stackage
-import Pier.Build.Components
-import Pier.Core.Run
 import Pier.Core.Command hiding (runCommand)
 import Pier.Core.Download
 import Pier.Core.Persistent
+import Pier.Core.Run
 
 data CommandOpt
     = Clean

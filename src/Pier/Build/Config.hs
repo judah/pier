@@ -11,18 +11,19 @@ module Pier.Build.Config
 
 import Control.Exception (throw)
 import Control.Monad (void)
-import qualified Data.HashMap.Strict as HM
 import Data.Maybe (fromMaybe)
 import Data.Yaml
+import Development.Shake
+import Development.Shake.Classes
 import Distribution.Package
 import Distribution.Text (display)
 import Distribution.Version
-import Development.Shake
-import Development.Shake.Classes
 import GHC.Generics hiding (packageName)
 
-import Pier.Build.Stackage
+import qualified Data.HashMap.Strict as HM
+
 import Pier.Build.Package
+import Pier.Build.Stackage
 import Pier.Core.Command
 import Pier.Core.Persistent
 
