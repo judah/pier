@@ -4,8 +4,8 @@ module Pier.Build.Components
     ( buildPackageRules
     , askBuiltLibrary
     , askMaybeBuiltLibrary
-    , buildExecutables
-    , buildExecutableNamed
+    , askBuiltExecutables
+    , askBuiltExecutable
     , BuiltExecutable(..)
     )
     where
@@ -49,13 +49,15 @@ buildPackageRules :: Rules ()
 buildPackageRules = do
     addPersistent buildLibrary
     addPersistent getBuiltinLib
+    addPersistent buildExecutables
+    addPersistent buildExecutable
 
-newtype BuiltLibraryR = BuiltLibraryR PackageName
+newtype BuiltLibraryQ = BuiltLibraryQ PackageName
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
-type instance RuleResult BuiltLibraryR = Maybe BuiltLibrary
+type instance RuleResult BuiltLibraryQ = Maybe BuiltLibrary
 
-instance Show BuiltLibraryR where
-    show (BuiltLibraryR p) = "Library " ++ display p
+instance Show BuiltLibraryQ where
+    show (BuiltLibraryQ p) = "Library " ++ display p
 
 data TransitiveDeps = TransitiveDeps
     { transitiveDBs :: Set Artifact
@@ -85,7 +87,7 @@ askBuiltLibraries :: [PackageName] -> Action [BuiltLibrary]
 askBuiltLibraries = flip forP askBuiltLibrary
 
 askMaybeBuiltLibrary :: PackageName -> Action (Maybe BuiltLibrary)
-askMaybeBuiltLibrary pkg = askPersistent (BuiltLibraryR pkg)
+askMaybeBuiltLibrary pkg = askPersistent (BuiltLibraryQ pkg)
 
 askBuiltLibrary :: PackageName -> Action BuiltLibrary
 askBuiltLibrary pkg = askMaybeBuiltLibrary pkg >>= helper
@@ -119,7 +121,7 @@ getConfiguredPackage p = do
         Builtin pid -> return $ Left pid
         Hackage pid flags -> do
             dir <- getPackageSourceDir pid
-            Right <$> getConfigured conf flags dir
+            Right . addHappyAlexSourceDirs <$> getConfigured conf flags dir
         Local dir _ -> Right <$> getConfigured conf HM.empty dir
   where
     getConfigured :: Config -> Flags -> Artifact -> Action ConfiguredPkg
@@ -129,8 +131,8 @@ getConfiguredPackage p = do
         return $ ConfiguredPkg desc dir' macros
 
 
-buildLibrary :: BuiltLibraryR -> Action (Maybe BuiltLibrary)
-buildLibrary (BuiltLibraryR pkg) =
+buildLibrary :: BuiltLibraryQ -> Action (Maybe BuiltLibrary)
+buildLibrary (BuiltLibraryQ pkg) =
     getConfiguredPackage pkg >>= \case
         Left p -> Just . BuiltLibrary p <$> askBuiltinLibrary
                                                 (packageIdToUnitId p)
@@ -250,38 +252,57 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
 data BuiltExecutable = BuiltExecutable
     { builtBinary :: Artifact
     , builtExeDataFiles :: Set Artifact
-    }
+    } deriving (Show, Eq, Generic, Hashable, Binary, NFData)
 
 progExe :: BuiltExecutable -> [String] -> Command
 progExe exe args = progA (builtBinary exe) args
                 <> inputs (builtExeDataFiles exe)
 
--- TODO: figure out the whole caching story
-buildExecutables :: PackageName -> Action (Map.Map String BuiltExecutable)
-buildExecutables p = getConfiguredPackage p >>= \case
+newtype BuiltExecutablesQ = BuiltExecutablesQ PackageName
+    deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
+type instance RuleResult BuiltExecutablesQ = Map.Map String BuiltExecutable
+instance Show BuiltExecutablesQ where
+    show (BuiltExecutablesQ p) = "Executables from " ++ display p
+
+askBuiltExecutables :: PackageName -> Action (Map.Map String BuiltExecutable)
+askBuiltExecutables = askPersistent . BuiltExecutablesQ
+
+buildExecutables :: BuiltExecutablesQ -> Action (Map.Map String BuiltExecutable)
+buildExecutables (BuiltExecutablesQ p) = getConfiguredPackage p >>= \case
     Left _ -> return Map.empty
     Right confd ->
         fmap Map.fromList
-            . mapM (\e -> (display $ exeName e,) <$> buildExecutable confd e)
+            . mapM (\e -> (display $ exeName e,)
+                                <$> buildExecutableFromPkg confd e)
             . filter (buildable . buildInfo)
             $ executables (confdDesc confd)
 
+data BuiltExecutableQ = BuiltExecutableQ PackageName String
+    deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
+type instance RuleResult BuiltExecutableQ = BuiltExecutable
+
+instance Show BuiltExecutableQ where
+    show (BuiltExecutableQ p e) = "Executable " ++ e ++ " from " ++ display p
+
+askBuiltExecutable :: PackageName -> String -> Action BuiltExecutable
+askBuiltExecutable p e = askPersistent $ BuiltExecutableQ p e
+
 -- TODO: error if not buildable?
-buildExecutableNamed :: PackageName -> String -> Action BuiltExecutable
-buildExecutableNamed p e = getConfiguredPackage p >>= \case
+buildExecutable :: BuiltExecutableQ -> Action BuiltExecutable
+buildExecutable (BuiltExecutableQ p e) = getConfiguredPackage p >>= \case
     Left pid -> error $ "Built-in package " ++ display pid
                         ++ " has no executables"
     Right confd
         | Just exe <- find ((== e) . display . exeName) (executables $ confdDesc confd)
-            -> buildExecutable confd exe
+            -> buildExecutableFromPkg confd exe
         | otherwise -> error $ "Package " ++ display (packageId confd)
                             ++ " has no executable named " ++ e
 
-buildExecutable
+buildExecutableFromPkg
     :: ConfiguredPkg
     -> Executable
     -> Action BuiltExecutable
-buildExecutable confd exe = do
+buildExecutableFromPkg confd exe = do
     let name = display $ exeName exe
     let desc = confdDesc confd
     let packageSourceDir = confdSourceDir confd
@@ -506,7 +527,7 @@ search ghc bi cIncludeDirs m srcDir
         let yFile = srcDir /> toFilePath m <.> ext
         exists yFile
         let relOutput = toFilePath m <.> "hs"
-        happy <- lift $ buildExecutableNamed (mkPackageName "happy") "happy"
+        happy <- lift $ askBuiltExecutable (mkPackageName "happy") "happy"
         lift . runCommand (output relOutput)
              $ progExe happy
                      ["-o", pathOut relOutput, pathIn yFile]
@@ -534,7 +555,7 @@ search ghc bi cIncludeDirs m srcDir
         exists xFile
         let relOutput = toFilePath m <.> "hs"
         -- TODO: mkPackageName doesn't exist in older ones
-        alex <- lift $ buildExecutableNamed (mkPackageName "alex") "alex"
+        alex <- lift $ askBuiltExecutable (mkPackageName "alex") "alex"
         lift . runCommand (output relOutput)
             $ progExe alex
                      ["-o", pathOut relOutput, pathIn xFile]
@@ -612,7 +633,7 @@ data ConfiguredPkg = ConfiguredPkg
     { confdDesc :: PackageDescription
     , confdSourceDir :: Artifact
     , confdMacros :: Artifact
-        -- Provides Cabal macros like VERSION_*
+        -- ^ Provides Cabal macros like VERSION_*
     }
 
 instance Package ConfiguredPkg where
@@ -638,3 +659,9 @@ genCabalMacros conf desc = do
 
 targetDepNames :: BuildInfo -> [PackageName]
 targetDepNames bi = [n | Dependency n _ <- targetBuildDepends bi]
+
+addHappyAlexSourceDirs :: ConfiguredPkg -> ConfiguredPkg
+addHappyAlexSourceDirs confd
+    | packageName (confdDesc confd) `elem` map mkPackageName ["happy", "alex"]
+        = confd { confdDesc = addDistSourceDirs $ confdDesc confd }
+    | otherwise = confd

@@ -5,15 +5,35 @@
 module Pier.Build.Custom
     ( collectHappyDataFiles
     , collectAlexDataFiles
+    , addDistSourceDirs
     ) where
 
 import Data.Char (isDigit)
 import Data.Monoid
 import Development.Shake
 import Development.Shake.FilePath
+import Distribution.PackageDescription
+import Distribution.Text (display)
 
 import Pier.Build.Stackage
 import Pier.Core.Command
+
+-- | Older versions of Happy and Alex were distributed with a "dist" directory
+-- (remnant of Cabal) that contained some bootstrapped source files.
+-- Add that directory to the hs-source-dirs for every executable in the package.
+addDistSourceDirs :: PackageDescription -> PackageDescription
+addDistSourceDirs pkg
+    = pkg { executables = map addDistToExe
+                                $ executables pkg
+          }
+  where
+    addDistToExe e = e {
+        buildInfo = (buildInfo e) {
+            hsSourceDirs = distPath (display $ exeName e)
+                            : hsSourceDirs (buildInfo e)
+        }
+    }
+    distPath name = "dist/build" </> name </> name ++ "-tmp"
 
 collectHappyDataFiles
     :: InstalledGhc -> Artifact -> Action Artifact
@@ -26,9 +46,9 @@ collectHappyDataFiles ghc dir = do
         , mapM (uncurry $ processTemplate ghc (dir /> "templates/GLR_Lib.hs"))
              glr_templates
         ]
-    let dataFiles = "data-files"
-    runCommand (output dataFiles) $
-        foldMap (\a -> shadow a $ dataFiles </> takeBaseName (pathIn a))
+    let files = "data-files"
+    runCommand (output files) $
+        foldMap (\a -> shadow a $ files </> takeBaseName (pathIn a))
             as
   where
     templates :: [(FilePath,[String])]
@@ -68,9 +88,9 @@ collectAlexDataFiles ghc dir =  do
         , mapM (uncurry $ processTemplate ghc (dir /> "templates/wrappers.hs"))
              wrappers
         ]
-    let dataFiles = "data-files"
-    runCommand (output dataFiles) $
-        foldMap (\a -> shadow a $ dataFiles </> takeBaseName (pathIn a))
+    let files = "data-files"
+    runCommand (output files) $
+        foldMap (\a -> shadow a $ files </> takeBaseName (pathIn a))
             as
   where
     templates :: [(FilePath,[String])]

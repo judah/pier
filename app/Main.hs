@@ -182,7 +182,7 @@ buildExeTarget pkg target = do
                 TargetAll -> return $ display pkg
                 TargetAllExes -> return $ display pkg
                 TargetLib -> error "command can't be used with a \"lib\" target"
-    buildExecutableNamed pkg name
+    askBuiltExecutable pkg name
 
 main :: IO ()
 main = do
@@ -228,7 +228,7 @@ parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
         Nothing -> Left $ "Error parsing package name " ++ show n
 
 buildTarget :: PackageName -> Target -> Action ()
-buildTarget n TargetAll = void $ askMaybeBuiltLibrary n >> buildExecutables n
+buildTarget n TargetAll = void $ askMaybeBuiltLibrary n >> askBuiltExecutables n
 buildTarget n TargetLib = void $ askBuiltLibrary n
-buildTarget n TargetAllExes = void $ buildExecutables n
-buildTarget n (TargetExe e) = void $ buildExecutableNamed n e
+buildTarget n TargetAllExes = void $ askBuiltExecutables n
+buildTarget n (TargetExe e) = void $ askBuiltExecutable n e

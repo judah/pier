@@ -10,9 +10,13 @@ import Distribution.PackageDescription
 import Distribution.Utils.ShortText
 import Distribution.Version
 
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Distribution.Text as Cabal
+
+instance (Hashable k, Hashable v) => Hashable (Map.Map k v) where
+    hashWithSalt k = hashWithSalt k . Map.toList
 
 instance Hashable a => Hashable (Set.Set a) where
     hashWithSalt k = hashWithSalt k . Set.toList
