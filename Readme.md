@@ -14,7 +14,8 @@ Its main features:
 - Runs each build step hermetically and in parallel
 - Built using [Shake](http://shakebuild.com)
 
-As an example, see [pier.yaml](pier.yaml) in this repository.
+For examples of project configuration, see the [sample](example/pier.yaml)
+project, or alternately [pier itself](pier.yaml).
 
 # Installation
 First clone this repository, and then build and install the `pier` executable using `stack` (version 1.6 or newer):
@@ -25,7 +26,12 @@ cd pier
 stack install
 ```
 
-Add `~/.local/bin` to your `$PATH` in order to start using `pier`.
+Add `~/.local/bin` to your `$PATH` in order to start using `pier`.  For example, try:
+
+```
+cd example
+pier build
+```
 
 ## Project Configuration
 A `pier.yaml` file specifies the configuration of a project.  For example:
