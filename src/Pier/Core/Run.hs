@@ -11,8 +11,12 @@ module Pier.Core.Run
     , removeKey
     ) where
 
+import Data.Bifunctor (second)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Exception
+import Control.Monad (forever)
 import qualified Data.Map.Strict as Map
 import Data.Map (Map)
 import Data.Monoid ((<>))
@@ -46,8 +50,11 @@ cleanAll = action $ do
 
 data DisplayState = DisplayState
     { _displayKey :: !Key
-    , displayMessages :: !(Map.Map Key Text)
-    } deriving Show
+    , displayMessages :: !(Map.Map Key (Text, Indicator))
+    }
+
+newtype Indicator = Indicator Int
+    deriving (Show, Eq)
 
 data Display = Display (MVar DisplayState) Term
 
@@ -87,7 +94,7 @@ newKey disp = swapState disp $ \(DisplayState k old) ->
 setKeyMessage :: Display -> Key -> String -> IO ()
 setKeyMessage disp k msg = swapState_ disp
     $ \(DisplayState k' old)
-        -> DisplayState k' $ Map.insert k (pack $ msg ++ "...") old
+        -> DisplayState k' $ Map.insert k (pack msg, Indicator 0) old
 
 removeKey :: Display -> Key -> IO ()
 removeKey disp k = swapState_ disp
@@ -96,11 +103,14 @@ removeKey disp k = swapState_ disp
 withDisplay :: (Display -> IO a) -> IO a
 withDisplay act = do
     d <- Display <$> newMVar empty <*> newTerm
-    act d `finally` swapState_ d (const empty)
+    a <- async $ forever $ pokeDisplay d >> threadDelay 1000000
+    act d `finally` (swapState_ d (const empty) >> cancel a)
   where
     -- TODO: this is the wrong behavior; we should preserve the most recent
     -- messages
     empty = DisplayState (Key 0) Map.empty
+    pokeDisplay d = swapState_ d $ \(DisplayState k old)
+            -> DisplayState k $ fmap (second nextIndicator) old
 
 swapState :: Display -> (DisplayState -> (DisplayState, a)) -> IO a
 swapState (Display state term) f = modifyMVar state $ \old -> do
@@ -113,18 +123,25 @@ swapState (Display state term) f = modifyMVar state $ \old -> do
 swapState_ :: Display -> (DisplayState -> DisplayState) -> IO ()
 swapState_ d f = swapState d ((, ()) . f)
 
-showDiff :: Term -> Map Key Text -> Map Key Text -> IO ()
+-- TODO: protect against display being too short
+showDiff :: Term -> Map Key (Text, Indicator) -> Map Key (Text, Indicator) -> IO ()
 showDiff term old new
     | old == new = return ()
     | otherwise =
     runTermOutput (termTerminal term)
         $ mreplicate (Map.size old) (termMoveUp term <#> termClearLine term)
-        <> foldMap (\t -> termText t <> termNewLine term)
-            (map unpack $ Map.elems new)
+        <> foldMap (\(t, i) -> termText (unpack t ++ showIndicator i) <> termNewLine term)
+            (Map.elems new)
 
 mreplicate :: Monoid m => Int -> m -> m
 mreplicate n m
     | n <= 0    = mempty
     | otherwise = m `mappend` mreplicate (n-1) m
 
--- TODO: progress indicator
+showIndicator :: Indicator -> String
+showIndicator (Indicator i) = replicate i '.'
+
+nextIndicator :: Indicator -> Indicator
+nextIndicator (Indicator n)
+    | n >= 10 = Indicator n
+    | otherwise = Indicator $ n + 1

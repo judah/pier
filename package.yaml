@@ -30,6 +30,7 @@ library:
   source-dirs: 'src'
   dependencies:
     - aeson
+    - async
     - base64-bytestring
     - binary
     - binary-orphans
