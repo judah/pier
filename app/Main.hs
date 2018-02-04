@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiWayIf #-}
 module Main (main) where
 
+import Control.Exception (bracket)
 import Control.Monad (void)
 import qualified Data.HashMap.Strict as HM
 import Data.List.Split (splitOn)
@@ -186,19 +187,22 @@ main :: IO ()
 main = do
     (commonOpts, cmdOpt) <- execParser parser
     -- Run relative to the `pier.yaml` file.
-    -- TODO: don't rely on setCurrentDirectory; use absolute paths everywhere
-    -- in the code.
+    -- Afterwards, move explicitly back into the original directory in case
+    -- this code is being interpreted by ghci.
+    -- TODO (#69): don't rely on setCurrentDirectory; just use absolute paths
+    -- everywhere in the code.
     (root, pierYamlFile)
         <- splitFileName <$> findPierYamlFile (getLast $ pierYaml commonOpts)
-    setCurrentDirectory root
-    withArgs (shakeFlags commonOpts) $ runPier $ do
-        buildPlanRules
-        buildPackageRules
-        commandRules
-        downloadRules
-        installGhcRules
-        configRules pierYamlFile
-        runWithOptions cmdOpt
+    bracket getCurrentDirectory setCurrentDirectory $ const $ do
+        setCurrentDirectory root
+        withArgs (shakeFlags commonOpts) $ runPier $ do
+            buildPlanRules
+            buildPackageRules
+            commandRules
+            downloadRules
+            installGhcRules
+            configRules pierYamlFile
+            runWithOptions cmdOpt
 
 -- TODO: move into Build.hs
 data Target
