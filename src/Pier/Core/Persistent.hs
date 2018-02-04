@@ -7,12 +7,13 @@ module Pier.Core.Persistent
     ) where
 
 import Data.Binary (encode, decodeOrFail)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.Rule
 import GHC.Generics
+
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 
 newtype PersistentQ question = PersistentQ question
     deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
