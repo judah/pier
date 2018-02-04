@@ -51,8 +51,11 @@ buildPackageRules = do
     addPersistent getBuiltinLib
 
 newtype BuiltLibraryR = BuiltLibraryR PackageName
-    deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
+    deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
 type instance RuleResult BuiltLibraryR = Maybe BuiltLibrary
+
+instance Show BuiltLibraryR where
+    show (BuiltLibraryR p) = "Library " ++ display p
 
 data TransitiveDeps = TransitiveDeps
     { transitiveDBs :: Set Artifact
@@ -172,8 +175,12 @@ askBuiltinLibrary :: UnitId -> Action TransitiveDeps
 askBuiltinLibrary = askPersistent . BuiltinLibraryR
 
 newtype BuiltinLibraryR = BuiltinLibraryR UnitId
-    deriving (Show, Typeable, Eq, Generic, Hashable, Binary, NFData)
+    deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
 type instance RuleResult BuiltinLibraryR = TransitiveDeps
+
+instance Show BuiltinLibraryR where
+    show (BuiltinLibraryR p) = "Library " ++ display p ++ " (built-in)"
+
 
 buildLibraryFromDesc
     :: BuiltDeps

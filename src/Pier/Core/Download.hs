@@ -14,6 +14,7 @@ import Network.HTTP.Client.TLS
 import Network.HTTP.Types.Status
 import System.IO.Temp as Temp
 
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 import qualified System.Directory as Directory
 import qualified System.IO as IO
@@ -30,7 +31,12 @@ data Download = Download
     , downloadName :: FilePath
     , downloadFilePrefix :: FilePath
         }
-    deriving (Show, Typeable, Eq, Generic)
+    deriving (Typeable, Eq, Generic)
+
+instance Show Download where
+    show d = "Download " ++ show (downloadName d)
+            ++ " from " ++ show (downloadUrlPrefix d)
+            ++ " into " ++ show (downloadFilePrefix d)
 
 instance Hashable Download
 instance Binary Download
@@ -61,12 +67,14 @@ downloadRules = do
                         req <- parseRequest url
                         resp <- httpLbs req manager
                         unless (statusIsSuccessful . responseStatus $ resp)
-                            $ error $ "Unable to download: " ++ show url
-                                    ++ ": " ++ show (responseStatus resp)
+                            $ error $ "Unable to download " ++ show url
+                                    ++ "\nStatus: " ++ showStatus (responseStatus resp)
                         liftIO . L.writeFile tmp . responseBody $ resp
                         createParentIfMissing result
                         Directory.renameFile tmp result
     return $ externalFile result
+  where
+    showStatus s = show (statusCode s) ++ " " ++ BC.unpack (statusMessage s)
 
 pierDownloadsDir :: IO FilePath
 pierDownloadsDir = do
