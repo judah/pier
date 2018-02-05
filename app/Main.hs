@@ -2,7 +2,8 @@
 module Main (main) where
 
 import Control.Exception (bracket)
-import Control.Monad (void)
+import Control.Monad (join, void)
+import Data.IORef
 import Data.List.Split (splitOn)
 import Data.Monoid (Last(..))
 import Data.Semigroup (Semigroup, (<>))
@@ -49,7 +50,7 @@ instance Semigroup CommonOptions where
         = CommonOptions (y <> y') (f <> f')
 
 -- | Parse command-independent options.
--- 
+--
 -- These are allowed both at the top level
 -- (for example, "-V" in "pier -V build TARGETS") and within individual
 -- commands ("pier build -V TARGETS").  However, we want them to only appear
@@ -144,13 +145,16 @@ findPierYamlFile Nothing = getCurrentDirectory >>= loop
                     ++ " from the current directory"
             | otherwise -> loop parent
 
-runWithOptions :: CommandOpt -> Rules ()
-runWithOptions Clean = cleaning True
-runWithOptions CleanAll = do
+runWithOptions
+    :: IORef (IO ()) -- ^ Sink for what to do after the build
+    -> CommandOpt
+    -> Rules ()
+runWithOptions _ Clean = cleaning True
+runWithOptions _ CleanAll = do
     liftIO unfreezeArtifacts
     cleaning True
     cleanAll
-runWithOptions (Build targets) = do
+runWithOptions _ (Build targets) = do
     cleaning False
     action $ do
         -- Build everything if the targets list is empty
@@ -159,16 +163,17 @@ runWithOptions (Build targets) = do
                                 <$> askConfig
                         else pure targets
         forP targets' (uncurry buildTarget)
-runWithOptions (Run sandbox (pkg, target) args) = do
+runWithOptions next (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
-        case sandbox of
-            Sandbox -> liftIO $ callArtifact (builtExeDataFiles exe)
-                                    (builtBinary exe) args
-            NoSandbox -> quietly $ command_ [WithStderr False]
-                            (pathIn $ builtBinary exe) args
-runWithOptions (Which (pkg, target)) = do
+        liftIO $ writeIORef next $
+            case sandbox of
+                Sandbox -> callArtifact (builtExeDataFiles exe)
+                                        (builtBinary exe) args
+                NoSandbox -> cmd_ (WithStderr False)
+                                (pathIn $ builtBinary exe) args
+runWithOptions _ (Which (pkg, target)) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
@@ -187,6 +192,10 @@ buildExeTarget pkg target = do
 main :: IO ()
 main = do
     (commonOpts, cmdOpt) <- execParser parser
+    -- A store for an optional action to run after building.
+    -- It may be set by runWithOptions.  This lets `pier run` "break" out
+    -- of the Rules/Action monads.
+    next <- newIORef $ pure ()
     -- Run relative to the `pier.yaml` file.
     -- Afterwards, move explicitly back into the original directory in case
     -- this code is being interpreted by ghci.
@@ -203,7 +212,8 @@ main = do
             downloadRules
             installGhcRules
             configRules pierYamlFile
-            runWithOptions cmdOpt
+            runWithOptions next cmdOpt
+    join $ readIORef next
 
 -- TODO: move into Build.hs
 data Target
