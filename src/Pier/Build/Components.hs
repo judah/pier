@@ -317,13 +317,11 @@ buildExecutableFromPkg confd exe = do
                         <> Set.map (packageSourceDir />)
                                  (Set.fromList $ ifNullDirs $ includeDirs bi)
     datas <- collectDataFiles ghc desc packageSourceDir
-    let findM = findModule ghc desc bi cIncludeDirs datas
-                    $ sourceDirArtifacts packageSourceDir bi
-    otherModuleFiles <- mapM findM $ addIfMissing pathsMod $ otherModules bi
-    mainFile <- let fullPath = packageSourceDir /> modulePath exe
-                in doesArtifactExist fullPath >>= \case
-                            True -> return fullPath
-                            False -> findM $ filePathToModule $ modulePath exe
+    let sourceLocs = sourceDirArtifacts packageSourceDir bi
+    otherModuleFiles <- mapM (findModule ghc desc bi cIncludeDirs datas
+                                sourceLocs)
+                         $ addIfMissing pathsMod $ otherModules bi
+    mainFile <- findMainFile ghc bi cIncludeDirs sourceLocs (modulePath exe)
     moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
     let cFiles = map (packageSourceDir />) $ cSources bi
     cIncludes <- collectCIncludes desc bi (packageSourceDir />)
@@ -479,10 +477,29 @@ findModule
 findModule ghc desc bi cIncludeDirs datas paths m = do
     found <- runMaybeT $ genPathsModule m (package desc) datas <|>
                 msum (map (search ghc bi cIncludeDirs m) paths)
-    case found of
-        Nothing -> error $ "Missing module " ++ display m
-                        ++ "; searched " ++ show paths
-        Just f -> return f
+    maybe (error $ "Missing module " ++ display m
+                    ++ "; searched " ++ show paths)
+        return found
+
+findMainFile
+    :: InstalledGhc
+    -> BuildInfo
+    -> Set Artifact -- ^ Transitive C include dirs
+    -> [Artifact]  -- ^ Source directory to check
+    -> FilePath
+    -> Action Artifact
+findMainFile ghc bi cIncludeDirs paths f = do
+    found <- runMaybeT $ msum $
+                map findFileDirectly paths ++
+                map (search ghc bi cIncludeDirs $ filePathToModule f) paths
+    maybe (error $ "Missing main file " ++ f
+                    ++ "; searched " ++ show paths)
+        return found
+  where
+    findFileDirectly path = do
+        let candidate = path /> f
+        exists candidate
+        return candidate
 
 genPathsModule
     :: ModuleName -> PackageIdentifier -> Maybe Artifact -> MaybeT Action Artifact
