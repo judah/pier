@@ -1,4 +1,6 @@
 #!/bin/bash
 
-stack --docker --docker-image fpco/stack-build:lts-10.3  build pier -j 1
-stack --docker --docker-image fpco/stack-build:lts-10.3  exec pier build pier
+IMAGE=snoyberg/stackage:nightly
+
+stack --docker --docker-image $IMAGE  build pier -j 1
+stack --docker --docker-image $IMAGE  exec pier build $(cat packages.txt)
