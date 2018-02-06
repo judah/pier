@@ -402,7 +402,6 @@ boundingboxes
 bower-json
 boxes
 brick
-brittany
 broadcast-chan
 bson
 bson-lens
@@ -711,7 +710,6 @@ dual-tree
 dublincore-xml-conduit
 dvorak
 dynamic-state
-dyre
 easy-file
 echo
 ed25519
@@ -892,8 +890,6 @@ getopt-generics
 ghc-compact
 ghc-core
 ghc-events
-ghc-exactprint
-ghc-paths
 ghc-prof
 ghc-syb-utils
 ghc-tcplugins-extra
@@ -1155,7 +1151,6 @@ highjson-th
 highlighting-kate
 hindent
 hinotify
-hint
 hip
 histogram-fill
 hit
