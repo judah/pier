@@ -275,13 +275,15 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
     putChatty $ showCommand cmdQ
     h <- commandHash cmdQ
     let outDir = hashDir h
+    d <- liftIO $ Directory.getCurrentDirectory
+    let tmpDir = d </> pierFile "tmp"
     -- Skip if the output directory already exists; we'll produce it atomically
     -- below.  This could happen if the action stops before Shake registers it as
     -- complete, due to either a synchronous or asynchronous exception.
     exists <- liftIO $ Directory.doesDirectoryExist outDir
     unless exists $ do
-        tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
-                                                        (hashString h)
+        liftIO $ createDirectoryIfMissing True tmpDir
+        tmp <- liftIO $ createTempDirectory tmpDir (hashString h)
         let tmpOutPath = (tmp </>) . pathOut
         liftIO $ collectInputs inps tmp
         mapM_ (createParentIfMissing . tmpOutPath) outs
@@ -297,10 +299,12 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
                                     ++ show f
                                     ++ " in temporary directory "
                                     ++ show tmp
-        liftIO $ withSystemTempDirectory (hashString h) $ \tempOutDir -> do
+        liftIO $ withTempDirectory tmpDir (hashString h) $ \tempOutDir -> do
             mapM_ (createParentIfMissing . (tempOutDir </>)) outs
             forM_ outs
-                $ \f -> renamePath (tmpOutPath f)
+                $ \f -> do
+                            -- print (tmpOutPath f, tempOutDir </> f) 
+                            renamePath (tmpOutPath f)
                                     (tempOutDir </> f)
             finalizeFrozen tempOutDir outDir
         -- Clean up the temp directory, but only if the above commands succeeded.
@@ -329,6 +333,7 @@ finalizeFrozen src dest = do
         >>= mapM_ (forFileRecursive_ freezePath . (src </>))
     createParentIfMissing dest
     -- Make the output directory appear atomically (see above).
+    -- print ("H1", src, dest) 
     Directory.renameDirectory src dest
     -- Freeze the actual directory after doing the move, which requires
     -- write permissions.
@@ -523,7 +528,9 @@ writeArtifact path contents = liftIO $ do
     let h = makeHash $ T.encodeUtf8 $ T.pack $ "writeArtifact: " ++ contents
     let dir = hashDir h
     exists <- Directory.doesDirectoryExist dir
-    unless exists $ withSystemTempDirectory (hashString h)
+    let tmp = pierFile "tmpWriteArtifact"
+    createDirectoryIfMissing True tmp
+    unless exists $ withTempDirectory tmp (hashString h)
                         $ \tempOutDir -> do
         let out = tempOutDir </> path
         createParentIfMissing out

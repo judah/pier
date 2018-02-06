@@ -251,6 +251,9 @@ platformKey = case buildPlatform of
 downloadAndInstallGHC
     :: Version -> [PackageName] -> DownloadInfo -> Action InstalledGhc
 downloadAndInstallGHC version corePkgs download = do
+    _ <- runCommand (output "foo")
+            $ message "testing"
+            <> prog "touch" [pathOut "foo"]
     -- TODO: reenable this once we've fixed the issue with nondetermistic
     -- temp file locations.
     -- rerunIfCleaned
@@ -271,6 +274,7 @@ downloadAndInstallGHC version corePkgs download = do
        (output installDir)
        $ message "Unpacking GHC"
           <> prog "tar" ["-xJf", pathIn tar, "-C", pathOut ""]
+          <> input tar
           <> withCwd (pathOut unpackedDir)
                 (message "Installing GHC locally"
                 <> progTemp (unpackedDir </> "configure")

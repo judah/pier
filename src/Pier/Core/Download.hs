@@ -69,9 +69,9 @@ downloadRules = do
                         unless (statusIsSuccessful . responseStatus $ resp)
                             $ error $ "Unable to download " ++ show url
                                     ++ "\nStatus: " ++ showStatus (responseStatus resp)
-                        liftIO . L.writeFile tmp . responseBody $ resp
+                        L.writeFile tmp . responseBody $ resp
                         createParentIfMissing result
-                        Directory.renameFile tmp result
+                        renameOrCopyFile tmp result
     return $ externalFile result
   where
     showStatus s = show (statusCode s) ++ " " ++ BC.unpack (statusMessage s)
