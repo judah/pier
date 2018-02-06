@@ -1218,8 +1218,6 @@ hslogger
 hslua
 hslua-aeson
 hslua-module-text
-hsndfile
-hsndfile-vector
 hsp
 hspec
 hspec-attoparsec
@@ -1664,7 +1662,6 @@ network-uri
 newtype
 newtype-generics
 next-ref
-nfc
 nicify-lib
 nix-paths
 non-empty
