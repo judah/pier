@@ -239,6 +239,7 @@ parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
 
 buildTarget :: PackageName -> Target -> Action ()
 buildTarget n TargetAll = void $ askMaybeBuiltLibrary n >> askBuiltExecutables n
+                                >> putNormal ("Successfully built " ++ display n)
 buildTarget n TargetLib = void $ askBuiltLibrary n
 buildTarget n TargetAllExes = void $ askBuiltExecutables n
 buildTarget n (TargetExe e) = void $ askBuiltExecutable n e
