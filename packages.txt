@@ -69,7 +69,6 @@ JuicyPixels-scale-dct
 LibZip
 List
 ListLike
-MFlow
 MemoTrie
 MissingH
 MonadPrompt
@@ -119,7 +118,6 @@ Unique
 ViennaRNAParser
 Win32
 Win32-notify
-Workflow
 X11
 X11-xft
 Xauth
