@@ -1145,7 +1145,6 @@ hexpat
 hexstring
 hformat
 hfsevents
-hid
 hidapi
 hidden-char
 hierarchical-clustering
@@ -1171,7 +1170,6 @@ hledger-lib
 hledger-ui
 hledger-web
 hlibgit2
-hlibsass
 hlint
 hmatrix
 hmatrix-gsl
@@ -1206,7 +1204,6 @@ hreader-lens
 hruby
 hs-GeoIP
 hs-bibutils
-hsass
 hsb2hs
 hscolour
 hsdns
