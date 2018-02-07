@@ -213,7 +213,7 @@ main = do
             installGhcRules
             configRules pierYamlFile
             runWithOptions next cmdOpt
-    join $ readIORef next
+        join $ readIORef next
 
 -- TODO: move into Build.hs
 data Target
