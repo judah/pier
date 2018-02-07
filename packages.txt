@@ -69,6 +69,7 @@ JuicyPixels-scale-dct
 LibZip
 List
 ListLike
+MFlow
 MemoTrie
 MissingH
 MonadPrompt
@@ -118,6 +119,7 @@ Unique
 ViennaRNAParser
 Win32
 Win32-notify
+Workflow
 X11
 X11-xft
 Xauth
@@ -402,6 +404,7 @@ boundingboxes
 bower-json
 boxes
 brick
+brittany
 broadcast-chan
 bson
 bson-lens
@@ -710,6 +713,7 @@ dual-tree
 dublincore-xml-conduit
 dvorak
 dynamic-state
+dyre
 easy-file
 echo
 ed25519
@@ -890,6 +894,8 @@ getopt-generics
 ghc-compact
 ghc-core
 ghc-events
+ghc-exactprint
+ghc-paths
 ghc-prof
 ghc-syb-utils
 ghc-tcplugins-extra
@@ -1141,6 +1147,7 @@ hexpat
 hexstring
 hformat
 hfsevents
+hid
 hidapi
 hidden-char
 hierarchical-clustering
@@ -1151,6 +1158,7 @@ highjson-th
 highlighting-kate
 hindent
 hinotify
+hint
 hip
 histogram-fill
 hit
@@ -1165,6 +1173,7 @@ hledger-lib
 hledger-ui
 hledger-web
 hlibgit2
+hlibsass
 hlint
 hmatrix
 hmatrix-gsl
@@ -1199,6 +1208,7 @@ hreader-lens
 hruby
 hs-GeoIP
 hs-bibutils
+hsass
 hsb2hs
 hscolour
 hsdns
@@ -1213,6 +1223,8 @@ hslogger
 hslua
 hslua-aeson
 hslua-module-text
+hsndfile
+hsndfile-vector
 hsp
 hspec
 hspec-attoparsec
@@ -1657,6 +1669,7 @@ network-uri
 newtype
 newtype-generics
 next-ref
+nfc
 nicify-lib
 nix-paths
 non-empty
