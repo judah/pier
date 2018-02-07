@@ -32,6 +32,8 @@ jobs:
       - run: $(stack exec which pier) build # build examples too
       - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
       - run: $(stack exec which pier) run hlint src
+      - run: 'echo "system-ghc: true" >> example/pier.yaml'
+      - run: $(stack exec which pier) build text unix-compat
 
       - save_cache:
             key: stack-cache-v2-{{ arch }}-{{ .Branch }}-{{ epoch }}

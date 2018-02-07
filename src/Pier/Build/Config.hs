@@ -49,6 +49,7 @@ data PierYaml = PierYaml
     { resolver :: PlanName
     , packages :: [FilePath]
     , extraDeps :: [PackageIdentifier]
+    , systemGhc :: Bool
     } deriving (Show, Eq, Typeable, Generic)
 instance Hashable PierYaml
 instance Binary PierYaml
@@ -59,10 +60,12 @@ instance FromJSON PierYaml where
         r <- o .: "resolver"
         pkgs <- o .:? "packages"
         ed <- o .:? "extra-deps"
+        sysGhc <- o .:? "system-ghc"
         return PierYaml
             { resolver = r
             , packages = fromMaybe [] pkgs
             , extraDeps = fromMaybe [] ed
+            , systemGhc = fromMaybe False sysGhc
             }
 
 data PierYamlQ = PierYamlQ
@@ -88,7 +91,7 @@ askConfig :: Action Config
 askConfig = do
     yaml <- askPersistent PierYamlQ
     p <- askBuildPlan (resolver yaml)
-    ghc <- askInstalledGhc p
+    ghc <- askInstalledGhc p (if systemGhc yaml then SystemGhc else StackageGhc)
     -- TODO: don't parse local package defs twice.
     -- We do it again later so the full PackageDescription
     -- doesn't need to get saved in the cache.
