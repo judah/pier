@@ -6,6 +6,7 @@ module Pier.Build.Stackage
     , askInstalledGhc
     , installGhcRules
     , InstalledGhc(..)
+    , GhcDistro(..)
     , ghcArtifacts
     , ghcProg
     , ghcPkgProg
@@ -108,24 +109,31 @@ askBuildPlan :: PlanName -> Action BuildPlan
 askBuildPlan = askPersistent . ReadPlan
 
 
-data InstallGhc = InstallGhc Version [PackageName]
+data InstalledGhcQ = InstalledGhcQ GhcDistro Version [PackageName]
     deriving (Typeable, Eq, Hashable, Binary, NFData, Generic)
 
-instance Show InstallGhc where
-    show (InstallGhc v pn) = "GHC, version " ++ Cabal.display v
+data GhcDistro
+    = SystemGhc
+    | StackageGhc
+    deriving (Show, Typeable, Eq, Hashable, Binary, NFData, Generic)
+
+instance Show InstalledGhcQ where
+    show (InstalledGhcQ d v pn) = "GHC"
+                            ++ " " ++ show d
+                            ++ ", version " ++ Cabal.display v
                             ++ ", built-in packages "
                             ++ List.intercalate ", " (map Cabal.display pn)
 
 -- | TODO: make the below functions that use Version take InstalledGhc directly instead
 data InstalledGhc = InstalledGhc
-    { ghcInstallDir :: Artifact
+    { ghcLibRoot :: Artifact
     , ghcInstalledVersion :: Version
     } deriving (Show, Typeable, Eq, Generic)
 instance Hashable InstalledGhc
 instance Binary InstalledGhc
 instance NFData InstalledGhc
 
-type instance RuleResult InstallGhc = InstalledGhc
+type instance RuleResult InstalledGhcQ = InstalledGhc
 
 globalPackageDb :: InstalledGhc -> Artifact
 globalPackageDb ghc = ghcLibRoot ghc /> packageConfD
@@ -134,19 +142,12 @@ packageConfD :: String
 packageConfD = "package.conf.d"
 
 ghcArtifacts :: InstalledGhc -> Set.Set Artifact
-ghcArtifacts g = Set.fromList [ghcInstallDir g, globalPackageDb g]
+ghcArtifacts g = Set.fromList [ghcLibRoot g]
 
-askInstalledGhc :: BuildPlan -> Action InstalledGhc
-askInstalledGhc plan
-    = askPersistent $ InstallGhc (ghcVersion plan)
+askInstalledGhc :: BuildPlan -> GhcDistro -> Action InstalledGhc
+askInstalledGhc plan distro
+    = askPersistent $ InstalledGhcQ distro (ghcVersion plan)
                     $ HM.keys $ corePackageVersions plan
-
-ghcLibRoot :: InstalledGhc -> Artifact
-ghcLibRoot g = ghcLibRootA (ghcInstalledVersion g) (ghcInstallDir g)
-
-ghcLibRootA :: Version -> Artifact -> Artifact
-ghcLibRootA version installDir =
-    installDir /> ("lib/ghc-" ++ Cabal.display version)
 
 -- | Convert @${pkgroot}@ prefixes, for utilities like hsc2hs that don't
 -- see packages directly
@@ -190,23 +191,22 @@ hsc2hsProg ghc args =
     template = ghcLibRoot ghc /> "template-hsc.h"
 
 installGhcRules :: Rules ()
-installGhcRules = addPersistent $ \(InstallGhc version corePkgs) -> do
-    setupYaml <- askDownload Download
-                    { downloadFilePrefix = "stackage/setup"
-                    , downloadName = "stack-setup-2.yaml"
-                    , downloadUrlPrefix = setupUrl
-                    }
-    -- TODO: don't re-parse the yaml for every GHC version
-    cs <- readArtifactB setupYaml
-    case decodeEither' cs of
-        Left err -> throw err
-        Right x
-            | Just download <- HM.lookup version (ghcVersions x)
-                -> downloadAndInstallGHC version corePkgs download
-            | otherwise -> error $ "Couldn't find GHC version" ++ Cabal.display version
-  where
-    setupUrl = "https://raw.githubusercontent.com/fpco/stackage-content/master/stack"
+installGhcRules = addPersistent installGhc
 
+installGhc :: InstalledGhcQ -> Action InstalledGhc
+installGhc (InstalledGhcQ distro version corePkgs) = do
+    installed <- case distro of
+                    StackageGhc -> downloadAndInstallGHC version
+                    SystemGhc -> getSystemGhc version
+    fixed <- makeRelativeGlobalDb corePkgs installed
+    runCommand_ $ ghcPkgProg fixed ["check"]
+    return fixed
+
+getSystemGhc :: Version -> Action InstalledGhc
+getSystemGhc version = do
+    path <- fmap (head . words) . runCommandStdout
+                $ prog (versionedGhc version) ["--print-libdir"]
+    return $ InstalledGhc (externalFile path) version
 
 data DownloadInfo = DownloadInfo
     { downloadUrl :: String
@@ -247,13 +247,28 @@ platformKey = case buildPlatform of
     Platform Arm    Linux   -> "linux-armv7"
     _ -> error $ "Unrecognized platform: " ++ Cabal.display buildPlatform
 
+setupUrl :: String
+setupUrl = "https://raw.githubusercontent.com/fpco/stackage-content/master/stack"
 
 downloadAndInstallGHC
-    :: Version -> [PackageName] -> DownloadInfo -> Action InstalledGhc
-downloadAndInstallGHC version corePkgs download = do
+    :: Version -> Action InstalledGhc
+downloadAndInstallGHC version = do
     _ <- runCommand (output "foo")
             $ message "testing"
             <> prog "touch" [pathOut "foo"]
+    setupYaml <- askDownload Download
+                    { downloadFilePrefix = "stackage/setup"
+                    , downloadName = "stack-setup-2.yaml"
+                    , downloadUrlPrefix = setupUrl
+                    }
+    -- TODO: don't re-parse the yaml for every GHC version
+    cs <- readArtifactB setupYaml
+    download <- case decodeEither' cs of
+        Left err -> throw err
+        Right x
+            | Just download <- HM.lookup version (ghcVersions x)
+                -> pure download
+            | otherwise -> fail $ "Couldn't find GHC version" ++ Cabal.display version
     -- TODO: reenable this once we've fixed the issue with nondetermistic
     -- temp file locations.
     -- rerunIfCleaned
@@ -269,7 +284,7 @@ downloadAndInstallGHC version corePkgs download = do
     -- to those paths in the package DB.  So we'll then generate a new DB with
     -- relative paths.
     let installDir = "ghc-install"
-    let unpackedDir = "ghc-" ++ Cabal.display version
+    let unpackedDir = versionedGhc version
     installed <- runCommand
        (output installDir)
        $ message "Unpacking GHC"
@@ -280,12 +295,12 @@ downloadAndInstallGHC version corePkgs download = do
                 <> progTemp (unpackedDir </> "configure")
                         ["--prefix=${TMPDIR}/" ++ pathOut installDir]
                 <> prog "make" ["install"])
-    fixed <- makeRelativeGlobalDb corePkgs
-                    InstalledGhc { ghcInstallDir = installed
-                                 , ghcInstalledVersion = version
-                                 }
-    runCommand_ $ ghcPkgProg fixed ["check"]
-    return fixed
+    return InstalledGhc { ghcLibRoot = installed /> "lib" </> versionedGhc version
+                        , ghcInstalledVersion = version
+                        }
+
+versionedGhc :: Version -> String
+versionedGhc version = "ghc-" ++ Cabal.display version
 
 makeRelativeGlobalDb :: [PackageName] -> InstalledGhc -> Action InstalledGhc
 makeRelativeGlobalDb corePkgs ghc = do
@@ -313,13 +328,11 @@ makeRelativeGlobalDb corePkgs ghc = do
             writeArtifact (pkg ++ ".conf") desc'
     confs <- mapM makePkgConf builtinPackages
     -- let globalRelativePackageDb = "global-packages/package-fixed.conf.d"
-    let ghcInstall = "ghc-fixed"
-    let ghcLib = ghcInstall </> "lib"
-                    </> ("ghc-" ++ Cabal.display (ghcInstalledVersion ghc))
-    let db = pathOut (ghcLib </> packageConfD)
-    let ghcPkg = progTemp (ghcLib </> "bin/ghc-pkg")
-    ghcDir <- runCommand (output ghcInstall)
-                $ shadow (ghcInstallDir ghc) ghcInstall
+    let ghcFixed = "ghc-fixed"
+    let db = pathOut (ghcFixed </> packageConfD)
+    let ghcPkg = progTemp (ghcFixed </> "bin/ghc-pkg")
+    ghcDir <- runCommand (output ghcFixed)
+                $ shadow (ghcLibRoot ghc) ghcFixed
                 <> inputList confs
                 <> message "Making global DB relative"
                 <> prog "rm" ["-rf", db]
@@ -334,7 +347,7 @@ makeRelativeGlobalDb corePkgs ghc = do
                             , "--force"
                             ])
                         confs
-    return ghc { ghcInstallDir = ghcDir }
+    return ghc { ghcLibRoot = ghcDir }
 
 -- TODO: this gets the TMPDIR that was used when installing; consider allowing
 -- that to be captured explicitly.

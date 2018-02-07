@@ -241,7 +241,9 @@ type instance RuleResult CommandQ = Hash
 commandHash :: CommandQ -> Action Hash
 commandHash cmdQ = do
     let externalFiles = [f | Artifact External f <- Set.toList $ commandInputs
-                                                        $ commandQCmd cmdQ]
+                                                        $ commandQCmd cmdQ
+                           , isRelative f
+                        ]
     need externalFiles
     -- TODO: streaming hash
     userFileHashes <- liftIO $ map hash <$> mapM B.readFile externalFiles
