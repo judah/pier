@@ -301,7 +301,8 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
                                     ++ show f
                                     ++ " in temporary directory "
                                     ++ show tmp
-        liftIO $ withTempDirectory tmpDir (hashString h) $ \tempOutDir -> do
+        liftIO $ do
+            tempOutDir <- createTempDirectory tmpDir (hashString h)
             mapM_ (createParentIfMissing . (tempOutDir </>)) outs
             forM_ outs
                 $ \f -> do
@@ -457,7 +458,8 @@ dedupArtifacts = loop . Set.toAscList
     loop [] = []
 
 freezePath :: FilePath -> IO ()
-freezePath f = getPermissions f >>= setPermissions f . setOwnerWritable False
+freezePath f = do
+    getPermissions f >>= setPermissions f . setOwnerWritable False
 
 -- | Make all artifacts user-writable, so they can be deleted by `clean-all`.
 unfreezeArtifacts :: IO ()
@@ -465,19 +467,22 @@ unfreezeArtifacts = do
     exists <- Directory.doesDirectoryExist artifactDir
     when exists $ forFileRecursive_ unfreeze artifactDir
   where
-    unfreeze f = do
-        sym <- pathIsSymbolicLink f
-        unless sym $ getPermissions f >>= setPermissions f . setOwnerWritable True
+    unfreeze f = getPermissions f >>= setPermissions f . setOwnerWritable True
 
--- TODO: don't loop on symlinks, and be more efficient?
+-- | Apply the action to this file/folder, and also to all (transitive) child
+-- files, if any.
+-- Skips symlinks (and doesn't follow down to their children).
+-- TODO: be more efficient?
 forFileRecursive_ :: (FilePath -> IO ()) -> FilePath -> IO ()
 forFileRecursive_ act f = do
-    isDir <- Directory.doesDirectoryExist f
-    if not isDir
-        then act f
-        else do
-            getRegularContents f >>= mapM_ (forFileRecursive_ act . (f </>))
-            act f
+    isSymlink <- pathIsSymbolicLink f
+    unless isSymlink $ do
+        isDir <- Directory.doesDirectoryExist f
+        if not isDir
+            then act f
+            else do
+                getRegularContents f >>= mapM_ (forFileRecursive_ act . (f </>))
+                act f
 
 getRegularContents :: FilePath -> IO [FilePath]
 getRegularContents f =
@@ -532,8 +537,8 @@ writeArtifact path contents = liftIO $ do
     exists <- Directory.doesDirectoryExist dir
     let tmp = pierFile "tmpWriteArtifact"
     createDirectoryIfMissing True tmp
-    unless exists $ withTempDirectory tmp (hashString h)
-                        $ \tempOutDir -> do
+    unless exists $ do
+        tempOutDir <- createTempDirectory tmp (hashString h)
         let out = tempOutDir </> path
         createParentIfMissing out
         writeFile out contents

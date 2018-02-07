@@ -195,6 +195,9 @@ installGhcRules = addPersistent installGhc
 
 installGhc :: InstalledGhcQ -> Action InstalledGhc
 installGhc (InstalledGhcQ distro version corePkgs) = do
+    _ <- runCommand (output "foo")
+            $ message "testing"
+            <> prog "touch" [pathOut "foo"]
     installed <- case distro of
                     StackageGhc -> downloadAndInstallGHC version
                     SystemGhc -> getSystemGhc version
@@ -253,9 +256,6 @@ setupUrl = "https://raw.githubusercontent.com/fpco/stackage-content/master/stack
 downloadAndInstallGHC
     :: Version -> Action InstalledGhc
 downloadAndInstallGHC version = do
-    _ <- runCommand (output "foo")
-            $ message "testing"
-            <> prog "touch" [pathOut "foo"]
     setupYaml <- askDownload Download
                     { downloadFilePrefix = "stackage/setup"
                     , downloadName = "stack-setup-2.yaml"
