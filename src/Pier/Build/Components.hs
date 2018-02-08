@@ -537,6 +537,7 @@ search ghc bi cIncludeDirs m srcDir
       genHappy "y" <|>
       genHappy "ly" <|>
       genAlex "x" <|>
+      genC2hs <|>
       existing "lhs" <|>
       existing "hs"
   where
@@ -577,6 +578,19 @@ search ghc bi cIncludeDirs m srcDir
             $ progExe alex
                      ["-o", pathOut relOutput, pathIn xFile]
                <> input xFile
+    genC2hs = do
+        let chsFile = srcDir /> toFilePath m <.> "chs"
+        exists chsFile
+        let relOutput = toFilePath m <.> "hs"
+        c2hs <- lift $ askBuiltExecutable (mkPackageName "c2hs") "c2hs"
+        lift . runCommand (output relOutput)
+             $ input chsFile
+            <> progExe c2hs
+                    (["-o", pathOut relOutput, pathIn chsFile]
+                    ++ ["--include=" ++ pathIn f | f <- Set.toList cIncludeDirs]
+                    ++ ["--cppopts=" ++ f | f <- ccOptions bi
+                                                    ++ cppOptions bi]
+                    )
 
     existing ext = let f = srcDir /> toFilePath m <.> ext
                  in exists f >> return f
