@@ -1,5 +1,7 @@
 # Pier: Yet another Haskell build system.
 
+TODO document system-ghc
+
 Pier is a command-line tool for building Haskell projects.
 
 [![Relevant XCKD](https://imgs.xkcd.com/comics/standards.png)](https://xkcd.com/927/)
