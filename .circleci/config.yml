@@ -15,7 +15,7 @@ jobs:
             mkdir -p $HOME/.local/bin
       - run:
           command: |
-            sudo apt-get install libgmp3-dev
+            sudo apt-get install libgmp3-dev libsndfile1-dev
             mkdir -p $HOME/.local/bin
             curl -L https://github.com/commercialhaskell/stack/releases/download/v1.6.1/stack-1.6.1-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
 
@@ -28,7 +28,10 @@ jobs:
       - run: weeder . --build
 
       # Run pier on some sample packages
-      - run: $(stack exec which pier) build c2hs hscolour hsx2hs lens pandoc pier unix-time wreq xhtml yaml -j4
+      - run:
+          command: |
+            $(stack exec which pier) build -j4 \
+                c2hs hscolour hsndfile hsx2hs lens pandoc pier unix-time wreq xhtml yaml
       - run: $(stack exec which pier) build # build examples too
       - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
       - run: $(stack exec which pier) run hlint src
