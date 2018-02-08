@@ -506,7 +506,8 @@ genPathsModule
 genPathsModule m pkg datas = do
     guard $ m == pathsModule
     lift $ writeArtifact ("paths" </> display m <.> "hs") $ unlines
-       [ "{-# LANGUAGE CPP #-}"
+        [ "{-# LANGUAGE CPP #-}"
+        , "{-# LANGUAGE ImplicitPrelude #-}"
         , "module " ++ display m ++ " (getDataFileName, getDataDir, version) where"
         , "import Data.Version (Version(..))"
         , "version = Version " ++ show (versionNumbers
