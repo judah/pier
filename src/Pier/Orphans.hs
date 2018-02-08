@@ -54,7 +54,7 @@ instance FromJSON PackageIdentifier where
 simpleParser :: Cabal.Text a => T.Text -> Parser a
 simpleParser t = case Cabal.simpleParse (T.unpack t) of
                         Just v -> pure v
-                        Nothing -> fail $ "Unable to parse PackageIdentifier: "
+                        Nothing -> fail $ "Unable to parse: "
                                             ++ show t
 
 cabalKeyTextParser :: Cabal.Text a => FromJSONKeyFunction a
