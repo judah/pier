@@ -20,7 +20,9 @@ For examples of project configuration, see the [sample](example/pier.yaml)
 project, or alternately [pier itself](pier.yaml).
 
 ## Status
-`pier` is still experimental.  It is currently able to build 89% of Stackage (2358 out of 2629 packages in `lts-10.3`).
+`pier` is still experimental.
+
+It is currently able to build 90% of Stackage (2378 out of 2629 packages in `lts-10.3`).
 
 # Installation
 First clone this repository, and then build and install the `pier` executable using `stack` (version 1.6 or newer):
