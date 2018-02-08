@@ -24,11 +24,11 @@ import Development.Shake.FilePath hiding (exe)
 import Distribution.Compiler
 import Distribution.ModuleName
 import Distribution.Package
-import Distribution.PackageDescription hiding (libName)
+import Distribution.PackageDescription
 import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
 import Distribution.System (buildOS, OS(..))
 import Distribution.Text
-import Distribution.Version (Version, versionNumbers)
+import Distribution.Version (Version, mkVersion, versionNumbers)
 import GHC.Generics hiding (packageName)
 import Language.Haskell.Extension
 
@@ -197,8 +197,8 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
     let lbi = libBuildInfo lib
     let hiDir = "hi"
     let oDir = "o"
-    let libName = "HS" ++ display (packageName $ package desc)
-    let dynLibFile = "lib" ++ libName
+    let libHSName = "HS" ++ display (packageName $ package desc)
+    let dynLibFile = "lib" ++ libHSName
                         ++ "-ghc" ++ display (ghcVersion $ plan conf) <.> dynExt
     let shouldBuildLib = not $ null $ exposedModules lib
     let pkgDir = (packageSourceDir />)
@@ -230,7 +230,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                             , "-o", pathOut dynLibFile
                             ]
                             (moduleFiles ++ cFiles)
-                return $ Just (libName, lib, dynLib, hiDir')
+                return $ Just (libHSName, lib, dynLib, hiDir')
     (pkgDb, libFiles) <- registerPackage ghc (package desc) lbi maybeLib
                 deps
     let linkerData = maybe Set.empty (\(_,_,dyn,_) -> Set.singleton dyn)
@@ -308,7 +308,7 @@ buildExecutableFromPkg confd exe = do
     let packageSourceDir = confdSourceDir confd
     let bi = buildInfo exe
     deps@(BuiltDeps _ transDeps)
-        <- askBuiltDeps $ targetDepNames bi
+        <- askBuiltDeps $ targetDepNamesOrAllDeps desc bi
     conf <- askConfig
     let ghc = configGhc conf
     let outputPrefix = display (packageName $ package desc)
@@ -424,10 +424,10 @@ registerPackage ghc pkg bi maybeLib (BuiltDeps depPkgs transDeps)
     let pre = "files"
     let (collectLibInputs, libDesc) = case maybeLib of
             Nothing -> (createDirectoryA pre, [])
-            Just (libName, lib, dynLibA, hi) ->
+            Just (libHSName, lib, dynLibA, hi) ->
                 ( shadow dynLibA (pre </> takeFileName (pathIn dynLibA))
                     <> shadow hi (pre </> "hi")
-                , [ "hs-libraries: " ++ libName
+                , [ "hs-libraries: " ++ libHSName
                   , "library-dirs: ${pkgroot}" </> pre
                   , "dynamic-library-dirs: ${pkgroot}" </> pre
                   , "import-dirs: ${pkgroot}" </> pre </> "hi"
@@ -662,20 +662,31 @@ instance Package ConfiguredPkg where
 -- `VERSION_texmath` in `pandoc.hs`, despite not directly depending on the
 -- `texmath` package.
 genCabalMacros :: Config -> PackageDescription -> Action Artifact
-genCabalMacros conf desc = do
-    let allBis = [libBuildInfo l | Just l <- [library desc]]
-                    ++ map buildInfo (executables desc)
-                    ++ map testBuildInfo (testSuites desc)
-                    ++ map benchmarkBuildInfo (benchmarks desc)
-    let packageNames = Set.toList . Set.fromList . concatMap targetDepNames
-                            $ allBis
+genCabalMacros conf =
     writeArtifact "macros.h"
         . generatePackageVersionMacros
         . map (resolvedPackageId . resolvePackage conf)
-        $ packageNames
+        . allDependencies
 
 targetDepNames :: BuildInfo -> [PackageName]
 targetDepNames bi = [n | Dependency n _ <- targetBuildDepends bi]
+
+allDependencies :: PackageDescription -> [PackageName]
+allDependencies desc = let
+    allBis = [libBuildInfo l | Just l <- [library desc]]
+                    ++ map buildInfo (executables desc)
+                    ++ map testBuildInfo (testSuites desc)
+                    ++ map benchmarkBuildInfo (benchmarks desc)
+   in Set.toList . Set.fromList . concatMap targetDepNames $ allBis
+
+-- | In older versions of Cabal, executables could use packages that were only
+-- explicitly depended on in the library or in other executables.  Some existing
+-- packages still assume this behavior.
+targetDepNamesOrAllDeps :: PackageDescription -> BuildInfo -> [PackageName]
+targetDepNamesOrAllDeps desc bi
+    | specVersion desc >= mkVersion [1,8] = targetDepNames bi
+    | otherwise = maybe [] (const [packageName desc]) (library desc)
+                    ++ allDependencies desc
 
 addHappyAlexSourceDirs :: ConfiguredPkg -> ConfiguredPkg
 addHappyAlexSourceDirs confd
