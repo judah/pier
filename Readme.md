@@ -44,17 +44,33 @@ packages:
   - 'path/to/bar'
 ```
 
+#### resolver
 The `resolver` specifies a set of package versions (as well as a version of GHC), using [Stackage](https://stackage.org).  It can be either an LTS or nightly version.
 
+#### packages
 The `packages` section lists paths to local directories containing Cabal packages (i.e., `*.cabal` and associated source files).
 
-Additionally, an `extra-deps` section may be used to add new versions of packages from Hackage that are not in the `resolver`, or to override existing versions.  For example:
+#### extra-deps
+An `extra-deps` section may be used to add new versions of packages from Hackage that are not in the `resolver`, or to override existing versions.  For example:
 
 ```
 extra-deps:
   - text-1.2.3.4
   - shake-0.15
 ```
+
+#### system-ghc
+By default, pier downloads and installs its own, local copy of GHC from
+`github.com/stackage`.  To override this behavior and use a GHC that's already
+installed on the system, set:
+
+```
+system-ghc: true
+```
+
+`pier` will look in the `$PATH`
+for a binary named `ghc-VERSION`, where `VERSION` is the version specified in the
+resolver (for example: `ghc-8.2.2`).
 
 # Usage
 
