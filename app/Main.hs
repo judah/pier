@@ -208,7 +208,7 @@ main = do
         withArgs (shakeFlags commonOpts) $ runPier $ do
             buildPlanRules
             buildPackageRules
-            commandRules
+            artifactRules
             downloadRules
             installGhcRules
             configRules pierYamlFile

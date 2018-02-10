@@ -4,7 +4,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE TypeOperators #-}
 module Pier.Core.Command
-    ( commandRules
+    ( artifactRules
     , Output
     , output
     , prog
@@ -49,7 +49,6 @@ import Distribution.Simple.Utils (matchDirFileGlob)
 import GHC.Generics
 import System.Directory as Directory
 import System.Exit (ExitCode(..))
-import System.IO.Temp
 import System.Posix.Files (createSymbolicLink)
 import System.Process.Internals (translate)
 
@@ -216,6 +215,9 @@ infixr 5 />  -- Same as </>
 -- and add a check that no two inputs for the same Command are
 -- subdirs of each other
 
+artifactRules :: Rules ()
+artifactRules = commandRules >> writeArtifactRules
+
 data CommandQ = CommandQ
     { commandQCmd :: Command
     , _commandQOutputs :: [FilePath]
@@ -255,58 +257,49 @@ runCommand (Output outs mk) c
 
 runCommandStdout :: Command -> Action String
 runCommandStdout c = do
-    out <- runCommand (output stdoutPath) c
+    out <- runCommand (output stdoutOutput) c
     liftIO $ readFile $ pathIn out
 
 runCommand_ :: Command -> Action ()
 runCommand_ = runCommand (pure ())
 
--- TODO: come up with a better story around cleaning/rebuilds.
--- (See also comments about removing the directory in `commandRules`.)
--- Maybe: don't use Persistent; instead, just look for the hash to be present
--- to decide whether to re-run things (similar to how oracles work).
-
--- TODO: make sure no artifact is a subdir of another artifact.
-
--- TODO: directories within archives are writable, and are modifyable
--- through symlinks.  Either just always do a `lndir`, or use real
--- sandboxes.
-
 commandRules :: Rules ()
 commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
     putChatty $ showCommand cmdQ
     h <- commandHash cmdQ
-    let outDir = hashDir h
-    -- Skip if the output directory already exists; we'll produce it atomically
-    -- below.  This could happen if the action stops before Shake registers it as
-    -- complete, due to either a synchronous or asynchronous exception.
-    exists <- liftIO $ Directory.doesDirectoryExist outDir
-    unless exists $ do
-        tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
-                                                        (hashString h)
-        let tmpOutPath = (tmp </>) . pathOut
-        liftIO $ collectInputs inps tmp
-        mapM_ (createParentIfMissing . tmpOutPath) outs
+    createArtifacts h $ \resultDir -> do
+        -- Run the command within a separate temporary directory.
+        -- When it's done, we'll move the explicit set of outputs into
+        -- the result location.
+        tmpDir <- createSystemTempDirectory (hashString h)
+        let tmpPathOut = (tmpDir </>) . pathOut
 
-        out <- B.concat <$> mapM (readProg tmp) progs
-        createParentIfMissing $ tmpOutPath stdoutPath
-        liftIO $ B.writeFile (tmpOutPath stdoutPath) out
+        liftIO $ collectInputs inps tmpDir
+        mapM_ (createParentIfMissing . tmpPathOut) outs
 
+        -- Run the command, and write its stdout to a special file.
+        stdoutStr <- B.concat <$> mapM (readProg tmpDir) progs
+
+        let stdoutPath = tmpPathOut stdoutOutput
+        createParentIfMissing stdoutPath
+        liftIO $ B.writeFile stdoutPath stdoutStr
+
+        -- Check that all the output files exist, and move them
+        -- into the output directory.
         liftIO $ forM_ outs $ \f -> do
-                        exist <- Directory.doesPathExist (tmpOutPath f)
-                        unless exist $
-                            error $ "runCommand: missing output "
-                                    ++ show f
-                                    ++ " in temporary directory "
-                                    ++ show tmp
-        liftIO $ withSystemTempDirectory (hashString h) $ \tempOutDir -> do
-            mapM_ (createParentIfMissing . (tempOutDir </>)) outs
-            forM_ outs
-                $ \f -> renamePath (tmpOutPath f)
-                                    (tempOutDir </> f)
-            finalizeFrozen tempOutDir outDir
+            let src = tmpPathOut f
+            let dest = resultDir </> f
+            exist <- Directory.doesPathExist src
+            unless exist $
+                error $ "runCommand: missing output "
+                        ++ show f
+                        ++ " in temporary directory "
+                        ++ show tmpDir
+            createParentIfMissing dest
+            renamePath src dest
+
         -- Clean up the temp directory, but only if the above commands succeeded.
-        liftIO $ removeDirectoryRecursive tmp
+        liftIO $ removeDirectoryRecursive tmpDir
     return h
 
 putChatty :: String -> Action ()
@@ -324,17 +317,36 @@ collectInputs inps tmp = do
     checkAllDistinctPaths inps'
     liftIO $ mapM_ (linkArtifact tmp) inps'
 
--- Move the source directory to the destination and make it read-only.
-finalizeFrozen :: FilePath -> FilePath -> IO ()
-finalizeFrozen src dest = do
-    getRegularContents src
-        >>= mapM_ (forFileRecursive_ freezePath . (src </>))
-    createParentIfMissing dest
-    -- Make the output directory appear atomically (see above).
-    Directory.renameDirectory src dest
-    -- Freeze the actual directory after doing the move, which requires
-    -- write permissions.
-    freezePath dest
+-- | Create a directory containing Artifacts.
+--
+-- If the output directory already exists, don't do anything.  Otherwise, run
+-- the given function with a temporary directory, and then move that directory
+-- atomically to the final output directory for those Artifacts.
+-- Files and (sub)directories, as well as the directory itself, will
+-- be made read-only.
+createArtifacts :: Hash -> (FilePath -> Action ()) -> Action ()
+createArtifacts h act = do
+    let destDir = hashDir h
+    -- Skip if the output directory already exists; we'll produce it atomically
+    -- below.  This could happen if Shake's database was cleaned, or if the
+    -- action stops before Shake registers it as complete, due to either a
+    -- synchronous or asynchronous exception.
+    exists <- liftIO $ Directory.doesDirectoryExist destDir
+    unless exists $ do
+        tempDir <- createSystemTempDirectory $ hashString h ++ "-result"
+        -- Run the given action.
+        act tempDir
+        liftIO $ do
+            -- Move the created directory to its final location,
+            -- with all the files and directories inside set to
+            -- read-only.
+            getRegularContents tempDir
+                >>= mapM_ (forFileRecursive_ freezePath . (tempDir </>))
+            createParentIfMissing destDir
+            Directory.renameDirectory tempDir destDir
+            -- Also set the directory itself to read-only, but wait
+            -- until the last step since read-only files can't be moved.
+            freezePath destDir
 
 -- Call a process inside the given directory and capture its stdout.
 -- TODO: more flexibility around the env vars
@@ -420,8 +432,8 @@ showCommand (CommandQ (Command progs inps) outputs) = unlines $
     showInput i = "Input: " ++ pathIn i
     showOutput a = "Output: " ++ pathOut a
 
-stdoutPath :: FilePath
-stdoutPath = "_stdout"
+stdoutOutput :: FilePath
+stdoutOutput = "_stdout"
 
 defaultEnv :: [(String, String)]
 defaultEnv = [("PATH", "/usr/bin:/bin")]
@@ -519,21 +531,31 @@ readArtifactB :: Artifact -> Action B.ByteString
 readArtifactB (Artifact External f) = need [f] >> liftIO (B.readFile f)
 readArtifactB f = liftIO $ B.readFile $ pathIn f
 
--- TODO: atomic
-writeArtifact :: MonadIO m => FilePath -> String -> m Artifact
-writeArtifact path contents = liftIO $ do
-    let h = makeHash $ T.encodeUtf8 $ T.pack $ "writeArtifact: " ++ contents
-    let dir = hashDir h
-    exists <- Directory.doesDirectoryExist dir
-    unless exists $ withSystemTempDirectory (hashString h)
-                        $ \tempOutDir -> do
-        let out = tempOutDir </> path
+data WriteArtifactQ = WriteArtifactQ
+    { writePath :: FilePath
+    , writeContents :: String
+    }
+    deriving (Eq, Typeable, Generic, Hashable, Binary, NFData)
+
+instance Show WriteArtifactQ where
+    show w = "Write " ++ writePath w
+
+type instance RuleResult WriteArtifactQ = Artifact
+
+writeArtifact :: FilePath -> String -> Action Artifact
+writeArtifact path contents = askPersistent $ WriteArtifactQ path contents
+
+writeArtifactRules :: Rules ()
+writeArtifactRules = addPersistent
+        $ \WriteArtifactQ {writePath = path, writeContents = contents} -> do
+    let h = makeHash . T.encodeUtf8 . T.pack
+                $ "writeArtifact: " ++ contents
+    createArtifacts h $ \tmpDir -> do
+        let out = tmpDir </> path
         createParentIfMissing out
-        writeFile out contents
-        finalizeFrozen tempOutDir dir
+        liftIO $ writeFile out contents
     return $ Artifact (Built h) $ normalise path
 
--- I guess we need doesFileExist?  Can we make that robust?
 doesArtifactExist :: Artifact -> Action Bool
 doesArtifactExist (Artifact External f) = Development.Shake.doesFileExist f
 doesArtifactExist f = liftIO $ Directory.doesFileExist (pathIn f)
@@ -549,8 +571,7 @@ matchArtifactGlob a g
 -- TODO: merge more with above code?  How hermetic should it be?
 callArtifact :: Set Artifact -> Artifact -> [String] -> IO ()
 callArtifact inps bin args = do
-    tmp <- liftIO $ getCanonicalTemporaryDirectory >>= flip createTempDirectory
-                                                        "exec"
+    tmp <- liftIO $ createSystemTempDirectory "exec"
     -- TODO: preserve if it fails?  Make that a parameter?
     collectInputs (Set.insert bin inps) tmp
     cmd_ [Cwd tmp]
