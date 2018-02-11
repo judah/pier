@@ -1,21 +1,50 @@
 # Pier: Yet another Haskell build system.
 
-Pier is a command-line tool for building Haskell projects.
+Pier is a command-line tool for building Haskell projects.  (Yes,
+[another one](https://xkcd.com/927).)
 
-[![Relevant XCKD](https://imgs.xkcd.com/comics/standards.png)](https://xkcd.com/927/)
+Pier is similar in purpose to [Stack](https://www.haskellstack.org); it
+uses `*.cabal` files for package configuration, and uses Stackage for
+consistent sets of package dependencies.  However, Pier attempts to
+address some of Stack's limitations by exploring a different approach:
 
-Its main features:
+- Pier invokes tools such as `ghc` directly, implementing the fine-grained
+  Haskell build logic from (nearly) scratch.  In contrast, Stack relies on a
+  separate framework to implement most of its build steps (i.e.,
+  `Cabal`/`Distribution.Simple`), giving it mostly coarse control over the build.
+- Pier layers its Haskell-specific logic on top of a general-purpose
+  library for hermetic, parallel builds and dependency tracking.  That library
+  is itself implemented using [Shake](http://shakebuild.com), and motivated by
+  tools such as [Nix](https://nixos.org/nix) and [Bazel](https://bazel.build).
+  In contrast, Stack's build and dependency logic is more specific to
+  Haskell projects.
 
-- Hermetic builds: each build step runs in a temporary directory with a limited set of inputs
-- All generated files are immutable (read-only) and stored within a single directory
-- Uses `.cabal` files to configure local packages
-- Use Stackage's package sets to specify dependencies
-- Invokes `ghc` directly, reimplementing the build logic from (nearly) scratch
-- Runs each build step hermetically and in parallel
-- Built using [Shake](http://shakebuild.com)
+(Interestingly, Stack originally did depend on Shake.  The project stopped using it
+early on, in part due to added complexity from the extra layer of Cabal build
+logic.  For more information, see write-ups by authors of
+[Stack](https://groups.google.com/d/msg/haskell-stack/icN7M0tJgxw/obPPZUVeAgAJ)
+and
+[Shake](http://neilmitchell.blogspot.com/2016/07/why-did-stack-stop-using-shake.html).)
 
 For examples of project configuration, see the [sample](example/pier.yaml)
 project, or alternately [pier itself](pier.yaml).
+
+## Status
+Pier is still experimental.  It has been tested on small projects, but not yet used in anger.
+
+Pier is already able to build most the packages in Stackage (specifically, 90% of
+the more than 2600 packages in `lts-10.3`). There is a
+[list of open issues](https://github.com/judah/pier/issues?q=is%3Aissue+is%3Aopen+label%3A%22Build+All+The+Packages%22)
+to increase Pier's coverage.  (Notably, packages with [Custom Setup.hs scripts](#22)
+are not supported.)
+
+## Contents
+
+- [Installation](#installation)
+- [Project Configuration](#project-configuration)
+- [Using pier](#using-pier)
+- [Build Outputs](#build-outputs)
+- [Frequently Asked Questions](#frequently-asked-questions)
 
 # Installation
 First clone this repository, and then build and install the `pier` executable using `stack` (version 1.6 or newer):
@@ -33,7 +62,7 @@ cd example
 pier build
 ```
 
-## Project Configuration
+# Project Configuration
 A `pier.yaml` file specifies the configuration of a project.  For example:
 
 ```
@@ -44,13 +73,27 @@ packages:
   - 'path/to/bar'
 ```
 
-#### resolver
-The `resolver` specifies a set of package versions (as well as a version of GHC), using [Stackage](https://stackage.org).  It can be either an LTS or nightly version.
+### resolver
+The `resolver` specifies a set of package versions (as well as a version of GHC), using [Stackage](https://stackage.org).  It can be either an LTS or nightly version.  For example:
 
-#### packages
-The `packages` section lists paths to local directories containing Cabal packages (i.e., `*.cabal` and associated source files).
+```
+resolver: lts-10.3
+```
+```
+resolver: nightly-2018-02-10
+```
 
-#### extra-deps
+### packages
+The `packages` section lists paths to local directories containing Cabal packages (i.e., `*.cabal` and associated source files).  For example:
+
+```
+packages:
+  - '.'
+  - 'foo'
+  - 'path/to/bar'
+```
+
+### extra-deps
 An `extra-deps` section may be used to add new versions of packages from Hackage that are not in the `resolver`, or to override existing versions.  For example:
 
 ```
@@ -59,7 +102,7 @@ extra-deps:
   - shake-0.15
 ```
 
-#### system-ghc
+### system-ghc
 By default, pier downloads and installs its own, local copy of GHC from
 `github.com/stackage`.  To override this behavior and use a GHC that's already
 installed on the system, set:
@@ -68,11 +111,11 @@ installed on the system, set:
 system-ghc: true
 ```
 
-`pier` will look in the `$PATH`
+This setting will make `pier` look in the `$PATH`
 for a binary named `ghc-VERSION`, where `VERSION` is the version specified in the
 resolver (for example: `ghc-8.2.2`).
 
-# Usage
+# Using `pier`
 
 For general comnmand-line usage, pass the `--help` flag:
 
@@ -82,6 +125,15 @@ pier build --help
 pier run --help
 # etc.
 ```
+## Common Options
+
+| Option | Result | Default |
+| --- | --- | --- |
+| `--pier-yaml={PATH}` | Use that file for build configuration | `pier.yaml` |
+| `--jobs={N}`, `-j{N}` | Run with at most this much parallelism | The number of detected CPUs |
+| `-V` | Increase the verbosity level | |
+| `--shake-arg={ARG}` | Pass the argument directly to Shake | |
+
 
 ### `pier build`
 
@@ -105,31 +157,40 @@ In case of ambiguity, `--` can be used to separate arguments of `pier` from argu
 ### `pier clean`
 `pier clean` marks some metadata in the Shake database as "dirty", so that it will be recreated on the next build.  This command may be required if you build a new version of `pier`, but should be unnecessary otherwise.
 
-### Common Options
+### `pier clean-all`
+`pier clean-all` completely deletes all build outputs (other than downloaded
+files, as described [here](#build-outputs)), so that future builds will start
+from scratch.  Note that this command will require Pier to reinstall a local
+copy of GHC unless `system-ghc: true` is set.
 
-| Option | Result | Default |
-| --- | --- | --- |
-| `--pier-yaml={PATH}` | Use that file for build configuration | `pier.yaml` |
-| `--jobs={N}`, `-j{N}` | Run with at most this much parallelism | The number of detected CPUs |
-| `-V` | Increase the verbosity level | |
-| `--shake-arg={ARG}` | Pass the argument directly to Shake | |
+# Build Outputs
 
-# Output File Locations
+`pier` saves most output files in a folder called `_pier/`, located in the
+same directory as `pier.yaml`. The only exception is downloaded files (for
+example, package tarballs for dependencies), which are saved under
+`$HOME/.pier` so that they may be reused between different projects on the same
+machine.
 
-`pier` saves most output files in a directory called `_pier`, located in the
-same directory as `pier.yaml`.  That output directory can generally be ignored
-(for example, with a `.gitignore` directive).
+Each build command (for example, a single invocation of `ghc` or
+`ghc-pkg`) runs separately in a temporary directory with a limited, explicit
+set of input files.  This approach is inspired by the `Bazel` project, which
+sandboxes each command in order to get reliable, deterministic builds.
+Note though that Pier does not currently provide the same strict guarantees
+as Bazel.  Instead, it uses file organization and marking outputs as
+read-only to catch a subset of potential bugs in the build logic.
 
-Each individual command's outputs (for example, from a single invocation ofv
-`ghc`) live in a separate directory `_pier/artifact/{HASH}`.  The `{HASH}` is
-a string that depends on the command's arguments and inputs, as well as its dependencies
-(commands that generated its inputs).
+The outputs of each command are saved into a distinct directory of the form:
+
+    `_pier/artifact/{HASH}`
+
+where the `{HASH}` is a unique string depending on the command's command-line
+arguments and input dependencies.  This file organization is similar to Nix,
+though Pier aims for much more fine-grained build steps than a standard Nix
+package.
 
 If necessary, `pier clean-all` will delete the `_pier` folder (and thus wipe out the entire build).  That folder can also be deleted manually with `chmod -R u+w _pier && rm -rf _pier`.  (Files and folders in `_pier` are marked as read-only.)
 
-Downloaded files (for example, package release tarballs) are saved under `$HOME/.pier`, so that they may be reused between different projects on the same machine.
-
-# FAQs
+# Frequently Asked Questions
 
 ### How much of Cabal/Stack does this project re-use?
 
