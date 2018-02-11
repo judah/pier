@@ -16,7 +16,7 @@ import Distribution.PackageDescription
 import Distribution.Text (display)
 
 import Pier.Build.Stackage
-import Pier.Core.Command
+import Pier.Core.Artifact
 
 -- | Older versions of Happy and Alex were distributed with a "dist" directory
 -- (remnant of Cabal) that contained some bootstrapped source files.

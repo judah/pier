@@ -1,38 +1,79 @@
--- | A generic approach to building and caching outputs hermetically.
---
--- Output format: _pier/artifact/HASH/path/to/files
+{- | A generic approach to building and caching file outputs.
+
+This is a layer on top of Shake which enables build actions to be written in a
+"forwards" style.  For example:
+
+> runPier $ action $ do
+>     contents <- lines <$> readArtifactA (externalFile "result.txt")
+>     let result = "result.tar"
+>     runCommand (output result)
+>        $ foldMap input contents
+>          <> prog "tar" (["-cf", pathOut result] ++ map pathIn contents)
+
+This approach generally leads to simpler logic than backwards-defined build systems such as
+make or (normal) Shake, where each step of the build logic must be written as a
+new build rule.
+
+Inputs and outputs of a command must be declared up-front, using the 'input'
+and 'output' functions respectively.  This enables isolated, deterministic
+build steps which are each run in their own temporary directory.
+
+Output files are stored in the location
+
+> _pier/artifact/HASH/path/to/file
+
+where @HASH@ is a string that uniquely determines the action generating
+that file.  In particular, there is no need to worry about choosing distinct names
+for outputs of different commands.
+
+Note that 'Development.Shake.Forward' has similar motivation to this module,
+but instead uses @fsatrace@ to detect what files changed after the fact.
+Unfortunately, that approach is not portable.  Additionally, it makes it
+difficult to isolate steps and make the build more reproducible (for example,
+to prevent the output of one step being mutated by a later one) since every
+output file could potentially be an input to every action.  Finally, by
+explicitly declaring outputs we can detect sooner when a command doesn't
+produce the files that we expect.
+
+-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE TypeOperators #-}
-module Pier.Core.Command
-    ( artifactRules
-    , Output
-    , output
-    , prog
-    , progA
-    , progTemp
-    , input
-    , inputs
-    , inputList
-    , message
-    , withCwd
-    , runCommand
-    , runCommandStdout
-    , runCommand_
-    , Command
+module Pier.Core.Artifact
+    ( -- * Rules
+      artifactRules
+      -- * Artifact
     , Artifact
     , externalFile
     , (/>)
-    , pathIn
-    , pathOut
     , replaceArtifactExtension
     , readArtifact
     , readArtifactB
     , doesArtifactExist
-    , writeArtifact
     , matchArtifactGlob
     , unfreezeArtifacts
-    , shadow
     , callArtifact
+      -- * Creating artifacts
+    , writeArtifact
+    , runCommand
+    , runCommand_
+    , runCommandStdout
+    , Command
+    , message
+      -- ** Command outputs
+    , Output
+    , output
+      -- ** Command inputs
+    , input
+    , inputs
+    , inputList
+    , shadow
+      -- * Running commands
+    , prog
+    , progA
+    , progTemp
+    , pathIn
+    , pathOut
+    , withCwd
     , createDirectoryA
     ) where
 
@@ -66,8 +107,9 @@ import Pier.Core.Persistent
 import Pier.Core.Run
 import Pier.Orphans ()
 
--- TODO: reconsider names in this module
-
+-- | A hermetic build step.  Consists of a sequence of calls to 'message',
+-- 'prog'/'progA'/'progTemp', and/or 'shadow', which may be combined using '<>'/'mappend'.
+-- Also specifies the input 'Artifacts' that are used by those commands.
 data Command = Command
     { _commandProgs :: [Prog]
     , commandInputs :: Set Artifact
@@ -98,20 +140,25 @@ instance Monoid Command where
 
 instance Semigroup Command
 
--- TODO: allow prog taking Artifact and using it as input
-
+-- | Run an external command-line program with the given arguments.
 prog :: String -> [String] -> Command
 prog p as = Command [ProgCall (CallEnv p) as "."] Set.empty
 
+-- | Run an artifact as an command-line program with the given arguments.
 progA :: Artifact -> [String] -> Command
 progA p as = Command [ProgCall (CallArtifact p) as "."] (Set.singleton p)
 
+-- | Run a command-line program with the given arguments, where the program
+-- was created by a previous program.
 progTemp :: FilePath -> [String] -> Command
 progTemp p as = Command [ProgCall (CallTemp p) as "."] Set.empty
 
+-- | Prints a status message for the user when this command runs.
 message :: String -> Command
 message s = Command [Message s] Set.empty
 
+-- | Runs a command within the given directory, which may be constructed by either `pathIn` or
+-- `pathOut`.
 withCwd :: FilePath -> Command -> Command
 withCwd path (Command ps as)
     | isAbsolute path = error $ "withCwd: expected relative path, got " ++ show path
@@ -120,12 +167,18 @@ withCwd path (Command ps as)
     setPath m@Message{} = m
     setPath p = p { progCwd = path }
 
+-- | Specify that an 'Artifact' should be made available to program calls within this
+-- 'Command'.
+--
+-- Note that the order does not matter; `input f <> cmd === cmd <> input f`.
 input :: Artifact -> Command
 input = inputs . Set.singleton
 
 inputList :: [Artifact] -> Command
 inputList = inputs . Set.fromList
 
+-- | Specify that a set of 'Artifact's should be made available to program calls within this
+-- 'Command'.
 inputs :: Set Artifact -> Command
 inputs = Command []
 
@@ -141,6 +194,9 @@ shadow a f
                             ++ show f
     | otherwise = Command [Shadow a f] Set.empty
 
+-- | The output of a given command.
+--
+-- Multiple outputs may be combined using the 'Applicative' instance.
 data Output a = Output [FilePath] (Hash -> a)
 
 instance Functor Output where
@@ -150,6 +206,9 @@ instance Applicative Output where
     pure = Output [] . const
     Output f g <*> Output f' g' = Output (f ++ f') (g <*> g')
 
+-- | Register a single output of a command.
+--
+-- The input must be a relative path and nontrivial (i.e., not @"."@ or @""@). 
 output :: FilePath -> Output Artifact
 output f
     | normalise f == "." = error $ "Can't output empty path " ++ show f
@@ -185,39 +244,36 @@ artifactDir = pierFile "artifact"
 hashString :: Hash -> String
 hashString (Hash h) = BC.unpack h
 
+-- | An 'Artifact' is a file or folder that was created by a build command.
 data Artifact = Artifact Source FilePath
-    deriving (Eq, Ord, Generic)
+    deriving (Eq, Ord, Generic, Hashable, Binary, NFData)
 
 instance Show Artifact where
     show (Artifact External f) = "external:" ++ show f
     show (Artifact (Built h) f) = hashString h ++ ":" ++ show f
 
-instance Hashable Artifact
-instance Binary Artifact
-instance NFData Artifact
-
 data Source = Built Hash | External
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Show, Eq, Ord, Generic, Hashable, Binary, NFData)
 
-instance Hashable Source
-instance Binary Source
-instance NFData Source
-
+-- | Create an 'Artifact' from an input file to the build (for example, a
+-- source file created by the user).
+--
+-- If it is a relative path, changes to the file will cause rebuilds of
+-- Commands and Rules that dependended on it.
 externalFile :: FilePath -> Artifact
 externalFile = Artifact External . normalise
 
+-- | Create a reference to a sub-file of the given 'Artifact', which must
+-- refer to a directory.
 (/>) :: Artifact -> FilePath -> Artifact
 Artifact source f /> g = Artifact source $ normalise $ f </> g
 
 infixr 5 />  -- Same as </>
 
--- TODO: go back to </> for artifacts (or some one-sided operator),
--- and add a check that no two inputs for the same Command are
--- subdirs of each other
-
 artifactRules :: Rules ()
 artifactRules = commandRules >> writeArtifactRules
 
+-- | The build rule type for commands.
 data CommandQ = CommandQ
     { commandQCmd :: Command
     , _commandQOutputs :: [FilePath]
@@ -251,15 +307,19 @@ commandHash cmdQ = do
     userFileHashes <- liftIO $ map hash <$> mapM B.readFile externalFiles
     return $ makeHash ("commandHash", cmdQ, userFileHashes)
 
+-- | Run the given command, capturing the specified outputs.
 runCommand :: Output t -> Command -> Action t
 runCommand (Output outs mk) c
     = mk <$> askPersistent (CommandQ c outs)
 
+-- Run the given command and record its stdout.
 runCommandStdout :: Command -> Action String
 runCommandStdout c = do
     out <- runCommand (output stdoutOutput) c
     liftIO $ readFile $ pathIn out
 
+-- | Run the given command without capturing its output.  Can be used to check
+-- consistency of the outputs of previous commands.
 runCommand_ :: Command -> Action ()
 runCommand_ = runCommand (pure ())
 
@@ -307,6 +367,8 @@ putChatty s = do
     v <- shakeVerbosity <$> getShakeOptions
     when (v >= Chatty) $ putNormal s
 
+-- | Returns the output location where to put a file so that it is available
+-- for capture by 'output'.
 pathOut :: FilePath -> FilePath
 pathOut f = artifactDir </> "out" </> f
 
@@ -515,14 +577,19 @@ linkArtifact dir a = do
                         ++ " for artifact " ++ show a
 
 
+-- | Returns the relative path to an Artifact, when provided to a 'Command' by 'input'.
 pathIn :: Artifact -> FilePath
 pathIn (Artifact External f) = f
 pathIn (Artifact (Built h) f) = hashDir h </> f
 
+-- | Replace the extension of an Artifact.  In particular,
+--
+-- > pathIn (replaceArtifactExtension f ext) == replaceExtension (pathIn f) ext@
 replaceArtifactExtension :: Artifact -> String -> Artifact
 replaceArtifactExtension (Artifact s f) ext
     = Artifact s $ replaceExtension f ext
 
+-- | Read the contents of an Artifact.
 readArtifact :: Artifact -> Action String
 readArtifact (Artifact External f) = readFile' f -- includes need
 readArtifact f = liftIO $ readFile $ pathIn f

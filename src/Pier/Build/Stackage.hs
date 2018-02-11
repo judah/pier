@@ -38,7 +38,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Distribution.Text as Cabal
 
-import Pier.Core.Command
+import Pier.Core.Artifact
 import Pier.Core.Download
 import Pier.Core.Persistent
 import Pier.Orphans ()

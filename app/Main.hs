@@ -20,7 +20,7 @@ import qualified Data.HashMap.Strict as HM
 import Pier.Build.Components
 import Pier.Build.Config
 import Pier.Build.Stackage
-import Pier.Core.Command hiding (runCommand)
+import Pier.Core.Artifact hiding (runCommand)
 import Pier.Core.Download
 import Pier.Core.Persistent
 import Pier.Core.Run

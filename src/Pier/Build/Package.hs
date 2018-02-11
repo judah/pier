@@ -20,7 +20,7 @@ import Distribution.Version (withinRange)
 import qualified Data.HashMap.Strict as HM
 
 import Pier.Build.Stackage
-import Pier.Core.Command
+import Pier.Core.Artifact
 import Pier.Core.Download
 
 downloadCabalPackage :: PackageIdentifier -> Action Artifact

@@ -19,7 +19,7 @@ import qualified Data.ByteString.Lazy as L
 import qualified System.Directory as Directory
 import qualified System.IO as IO
 
-import Pier.Core.Command
+import Pier.Core.Artifact
 import Pier.Core.Directory
 import Pier.Core.Persistent
 

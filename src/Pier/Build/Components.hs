@@ -41,7 +41,7 @@ import Pier.Build.Custom
 import Pier.Build.Config
 import Pier.Build.Package
 import Pier.Build.Stackage
-import Pier.Core.Command
+import Pier.Core.Artifact
 import Pier.Core.Persistent
 
 
