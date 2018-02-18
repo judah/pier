@@ -4,6 +4,7 @@ module Pier.Core.Download
     , downloadRules
     ) where
 
+import Control.Exception (bracketOnError)
 import Control.Monad (unless)
 import Development.Shake
 import Development.Shake.Classes
@@ -12,16 +13,15 @@ import GHC.Generics
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
 import Network.HTTP.Types.Status
-import System.IO.Temp as Temp
 
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 import qualified System.Directory as Directory
-import qualified System.IO as IO
 
 import Pier.Core.Artifact
 import Pier.Core.Directory
 import Pier.Core.Persistent
+import Pier.Core.Run
 
 -- | Downloads @downloadUrlPrefix </> downloadName@ to
 -- @downloadFilePrefix </> downloadName@.
@@ -60,9 +60,11 @@ downloadRules = do
     exists <- liftIO $ Directory.doesFileExist result
     unless exists $ do
         putNormal $ "Downloading " ++ downloadName d
-        liftIO $ withSystemTempFile (takeFileName $ downloadName d)
-                    $ \tmp h -> do
-                        IO.hClose h
+        -- TODO: fix the race
+        liftIO $ bracketOnError
+            (createPierTempFile $ takeFileName $ downloadName d)
+            Directory.removeFile
+            $ \tmp -> do
                         let url = downloadUrlPrefix d </> downloadName d
                         req <- parseRequest url
                         resp <- httpLbs req manager

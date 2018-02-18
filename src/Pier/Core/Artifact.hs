@@ -270,8 +270,8 @@ Artifact source f /> g = Artifact source $ normalise $ f </> g
 
 infixr 5 />  -- Same as </>
 
-artifactRules :: Rules ()
-artifactRules = commandRules >> writeArtifactRules
+artifactRules :: HandleTemps -> Rules ()
+artifactRules ht = commandRules ht >> writeArtifactRules
 
 -- | The build rule type for commands.
 data CommandQ = CommandQ
@@ -323,22 +323,23 @@ runCommandStdout c = do
 runCommand_ :: Command -> Action ()
 runCommand_ = runCommand (pure ())
 
-commandRules :: Rules ()
-commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
+commandRules :: HandleTemps -> Rules ()
+commandRules ht = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
     putChatty $ showCommand cmdQ
     h <- commandHash cmdQ
-    createArtifacts h $ \resultDir -> do
-        -- Run the command within a separate temporary directory.
-        -- When it's done, we'll move the explicit set of outputs into
-        -- the result location.
-        tmpDir <- createSystemTempDirectory (hashString h)
+    createArtifacts h $ \resultDir ->
+      -- Run the command within a separate temporary directory.
+      -- When it's done, we'll move the explicit set of outputs into
+      -- the result location.
+      withPierTempDirectoryAction ht (hashString h) $ \tmpDir -> do
         let tmpPathOut = (tmpDir </>) . pathOut
 
         liftIO $ collectInputs inps tmpDir
         mapM_ (createParentIfMissing . tmpPathOut) outs
 
         -- Run the command, and write its stdout to a special file.
-        stdoutStr <- B.concat <$> mapM (readProg tmpDir) progs
+        root <- liftIO getCurrentDirectory
+        stdoutStr <- B.concat <$> mapM (readProg (root </> tmpDir)) progs
 
         let stdoutPath = tmpPathOut stdoutOutput
         createParentIfMissing stdoutPath
@@ -357,9 +358,6 @@ commandRules = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
                         ++ show tmpDir
             createParentIfMissing dest
             renamePath src dest
-
-        -- Clean up the temp directory, but only if the above commands succeeded.
-        liftIO $ removeDirectoryRecursive tmpDir
     return h
 
 putChatty :: String -> Action ()
@@ -395,7 +393,7 @@ createArtifacts h act = do
     -- synchronous or asynchronous exception.
     exists <- liftIO $ Directory.doesDirectoryExist destDir
     unless exists $ do
-        tempDir <- createSystemTempDirectory $ hashString h ++ "-result"
+        tempDir <- createPierTempDirectory $ hashString h ++ "-result"
         -- Run the given action.
         act tempDir
         liftIO $ do
@@ -636,15 +634,12 @@ matchArtifactGlob a g
     = liftIO $ matchDirFileGlob (pathIn a) g
 
 -- TODO: merge more with above code?  How hermetic should it be?
-callArtifact :: Set Artifact -> Artifact -> [String] -> IO ()
-callArtifact inps bin args = do
-    tmp <- liftIO $ createSystemTempDirectory "exec"
-    -- TODO: preserve if it fails?  Make that a parameter?
+callArtifact :: HandleTemps -> Set Artifact -> Artifact -> [String] -> IO ()
+callArtifact ht inps bin args = withPierTempDirectory ht "exec" $ \tmp -> do
+    dir <- getCurrentDirectory
     collectInputs (Set.insert bin inps) tmp
     cmd_ [Cwd tmp]
-        (tmp </> pathIn bin) args
-    -- Clean up the temp directory, but only if the above commands succeeded.
-    liftIO $ removeDirectoryRecursive tmp
+        (dir </> tmp </> pathIn bin) args
 
 createDirectoryA :: FilePath -> Command
 createDirectoryA f = prog "mkdir" ["-p", pathOut f]

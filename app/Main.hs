@@ -5,6 +5,7 @@ import Control.Exception (bracket)
 import Control.Monad (join, void)
 import Data.IORef
 import Data.List.Split (splitOn)
+import Data.Maybe (fromMaybe)
 import Data.Monoid (Last(..))
 import Data.Semigroup (Semigroup, (<>))
 import Development.Shake hiding (command)
@@ -43,11 +44,12 @@ parseSandboxed =
 data CommonOptions = CommonOptions
     { pierYaml :: Last FilePath
     , shakeFlags :: [String]
+    , handleTemps :: Last HandleTemps
     }
 
 instance Semigroup CommonOptions where
-    CommonOptions y f <> CommonOptions y' f'
-        = CommonOptions (y <> y') (f <> f')
+    CommonOptions y f ht <> CommonOptions y' f' ht'
+        = CommonOptions (y <> y') (f <> f') (ht <> ht')
 
 -- | Parse command-independent options.
 --
@@ -58,10 +60,18 @@ instance Semigroup CommonOptions where
 -- cumbersome with optparse-applicative.
 parseCommonOptions :: Hidden -> Parser CommonOptions
 parseCommonOptions h = CommonOptions <$> parsePierYaml <*> parseShakeFlags h
+                                     <*> parseHandleTemps
   where
     parsePierYaml :: Parser (Last FilePath)
     parsePierYaml = fmap Last $ optional $ strOption
                         $ long "pier-yaml" <> metavar "YAML" <> hide h
+
+    parseHandleTemps :: Parser (Last HandleTemps)
+    parseHandleTemps =
+        Last . Just <$>
+            flag RemoveTemps KeepTemps
+                (long "keep-temps"
+                <> help "Don't remove temporary directories")
 
 data Hidden = Hidden | Shown
 
@@ -147,14 +157,15 @@ findPierYamlFile Nothing = getCurrentDirectory >>= loop
 
 runWithOptions
     :: IORef (IO ()) -- ^ Sink for what to do after the build
+    -> HandleTemps
     -> CommandOpt
     -> Rules ()
-runWithOptions _ Clean = cleaning True
-runWithOptions _ CleanAll = do
+runWithOptions _ _ Clean = cleaning True
+runWithOptions _ _ CleanAll = do
     liftIO unfreezeArtifacts
     cleaning True
     cleanAll
-runWithOptions _ (Build targets) = do
+runWithOptions _ _ (Build targets) = do
     cleaning False
     action $ do
         -- Build everything if the targets list is empty
@@ -163,17 +174,17 @@ runWithOptions _ (Build targets) = do
                                 <$> askConfig
                         else pure targets
         forP targets' (uncurry buildTarget)
-runWithOptions next (Run sandbox (pkg, target) args) = do
+runWithOptions next ht (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
         liftIO $ writeIORef next $
             case sandbox of
-                Sandbox -> callArtifact (builtExeDataFiles exe)
-                                        (builtBinary exe) args
+                Sandbox -> callArtifact ht (builtExeDataFiles exe)
+                                (builtBinary exe) args
                 NoSandbox -> cmd_ (WithStderr False)
                                 (pathIn $ builtBinary exe) args
-runWithOptions _ (Which (pkg, target)) = do
+runWithOptions _ _ (Which (pkg, target)) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
@@ -203,16 +214,17 @@ main = do
     -- everywhere in the code.
     (root, pierYamlFile)
         <- splitFileName <$> findPierYamlFile (getLast $ pierYaml commonOpts)
+    let ht = fromMaybe RemoveTemps $ getLast $ handleTemps commonOpts
     bracket getCurrentDirectory setCurrentDirectory $ const $ do
         setCurrentDirectory root
         withArgs (shakeFlags commonOpts) $ runPier $ do
             buildPlanRules
             buildPackageRules
-            artifactRules
+            artifactRules ht
             downloadRules
             installGhcRules
             configRules pierYamlFile
-            runWithOptions next cmdOpt
+            runWithOptions next ht cmdOpt
         join $ readIORef next
 
 -- TODO: move into Build.hs
