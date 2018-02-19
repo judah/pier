@@ -44,12 +44,19 @@ parseSandboxed =
 data CommonOptions = CommonOptions
     { pierYaml :: Last FilePath
     , shakeFlags :: [String]
-    , handleTemps :: Last HandleTemps
+    , lastHandleTemps :: Last HandleTemps
+    , lastDownloadLocation :: Last DownloadLocation
     }
 
 instance Semigroup CommonOptions where
-    CommonOptions y f ht <> CommonOptions y' f' ht'
-        = CommonOptions (y <> y') (f <> f') (ht <> ht')
+    CommonOptions y f ht dl <> CommonOptions y' f' ht' dl'
+        = CommonOptions (y <> y') (f <> f') (ht <> ht') (dl <> dl')
+
+handleTemps :: CommonOptions -> HandleTemps
+handleTemps = fromMaybe RemoveTemps . getLast . lastHandleTemps
+
+downloadLocation :: CommonOptions -> DownloadLocation
+downloadLocation = fromMaybe DownloadToHome . getLast . lastDownloadLocation
 
 -- | Parse command-independent options.
 --
@@ -61,6 +68,7 @@ instance Semigroup CommonOptions where
 parseCommonOptions :: Hidden -> Parser CommonOptions
 parseCommonOptions h = CommonOptions <$> parsePierYaml <*> parseShakeFlags h
                                      <*> parseHandleTemps
+                                     <*> parseDownloadLocation
   where
     parsePierYaml :: Parser (Last FilePath)
     parsePierYaml = fmap Last $ optional $ strOption
@@ -72,6 +80,13 @@ parseCommonOptions h = CommonOptions <$> parsePierYaml <*> parseShakeFlags h
             flag RemoveTemps KeepTemps
                 (long "keep-temps"
                 <> help "Don't remove temporary directories")
+
+    parseDownloadLocation :: Parser (Last DownloadLocation)
+    parseDownloadLocation =
+        Last . Just <$>
+            flag DownloadToHome DownloadLocal
+                (long "download-local"
+                <> help "Store downloads in the local _pier directory")
 
 data Hidden = Hidden | Shown
 
@@ -214,14 +229,14 @@ main = do
     -- everywhere in the code.
     (root, pierYamlFile)
         <- splitFileName <$> findPierYamlFile (getLast $ pierYaml commonOpts)
-    let ht = fromMaybe RemoveTemps $ getLast $ handleTemps commonOpts
+    let ht = handleTemps commonOpts
     bracket getCurrentDirectory setCurrentDirectory $ const $ do
         setCurrentDirectory root
         withArgs (shakeFlags commonOpts) $ runPier $ do
             buildPlanRules
             buildPackageRules
             artifactRules ht
-            downloadRules
+            downloadRules $ downloadLocation commonOpts
             installGhcRules
             configRules pierYamlFile
             runWithOptions next ht cmdOpt

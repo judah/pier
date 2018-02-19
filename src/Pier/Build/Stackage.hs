@@ -285,6 +285,7 @@ downloadAndInstallGHC version = do
     installed <- runCommand
        (output installDir)
        $ message "Unpacking GHC"
+          <> input tar
           <> prog "tar" ["-xJf", pathIn tar, "-C", pathOut ""]
           <> withCwd (pathOut unpackedDir)
                 (message "Installing GHC locally"

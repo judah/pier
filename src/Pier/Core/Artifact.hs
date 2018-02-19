@@ -524,7 +524,8 @@ dedupArtifacts = loop . Set.toAscList
     loop [] = []
 
 freezePath :: FilePath -> IO ()
-freezePath f = getPermissions f >>= setPermissions f . setOwnerWritable False
+freezePath f =
+    getPermissions f >>= setPermissions f . setOwnerWritable False
 
 -- | Make all artifacts user-writable, so they can be deleted by `clean-all`.
 unfreezeArtifacts :: IO ()
@@ -539,12 +540,14 @@ unfreezeArtifacts = do
 -- TODO: don't loop on symlinks, and be more efficient?
 forFileRecursive_ :: (FilePath -> IO ()) -> FilePath -> IO ()
 forFileRecursive_ act f = do
-    isDir <- Directory.doesDirectoryExist f
-    if not isDir
-        then act f
-        else do
-            getRegularContents f >>= mapM_ (forFileRecursive_ act . (f </>))
-            act f
+    isSymLink <- pathIsSymbolicLink f
+    unless isSymLink $ do
+        isDir <- Directory.doesDirectoryExist f
+        if not isDir
+            then act f
+            else do
+                getRegularContents f >>= mapM_ (forFileRecursive_ act . (f </>))
+                act f
 
 getRegularContents :: FilePath -> IO [FilePath]
 getRegularContents f =

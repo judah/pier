@@ -2,6 +2,7 @@ module Pier.Core.Download
     ( askDownload
     , Download(..)
     , downloadRules
+    , DownloadLocation(..)
     ) where
 
 import Control.Exception (bracketOnError)
@@ -48,13 +49,13 @@ askDownload :: Download -> Action Artifact
 askDownload = askPersistent
 
 -- TODO: make this its own rule type?
-downloadRules :: Rules ()
-downloadRules = do
+downloadRules :: DownloadLocation -> Rules ()
+downloadRules loc = do
     manager <- liftIO $ newManager tlsManagerSettings
     addPersistent $ \d -> do
     -- Download to a shared location under $HOME/.pier, if it doesn't
     -- already exist (atomically); then make an artifact that symlinks to it.
-    downloadsDir <- liftIO pierDownloadsDir
+    downloadsDir <- liftIO $ pierDownloadsDir loc
     let result = downloadsDir </> downloadFilePrefix d
                                         </> downloadName d
     exists <- liftIO $ Directory.doesFileExist result
@@ -78,7 +79,12 @@ downloadRules = do
   where
     showStatus s = show (statusCode s) ++ " " ++ BC.unpack (statusMessage s)
 
-pierDownloadsDir :: IO FilePath
-pierDownloadsDir = do
+pierDownloadsDir :: DownloadLocation -> IO FilePath
+pierDownloadsDir DownloadToHome = do
     home <- Directory.getHomeDirectory
     return $ home </> ".pier/downloads"
+pierDownloadsDir DownloadLocal = return $ pierFile "downloads"
+
+data DownloadLocation
+    = DownloadToHome
+    | DownloadLocal

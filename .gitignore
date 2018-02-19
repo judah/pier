@@ -1,3 +1,4 @@
 .stack-work/
 *.cabal
 _pier/
+stackage/packages.txt
