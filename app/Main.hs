@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiWayIf #-}
 module Main (main) where
 
+import Control.Concurrent.MVar
 import Control.Exception (bracket)
 import Control.Monad (join, void)
 import Data.IORef
@@ -188,7 +189,11 @@ runWithOptions _ _ (Build targets) = do
                         then map (,TargetAll) . HM.keys . localPackages
                                 <$> askConfig
                         else pure targets
-        forP targets' (uncurry buildTarget)
+        putNormal $ "Total: " ++ show (length targets')
+        v <- liftIO $ newMVar 0
+        void $ forP targets' (uncurry $ buildTarget v)
+        liftIO (takeMVar v) >>= putNormal . show
+        
 runWithOptions next ht (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
@@ -264,8 +269,12 @@ parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
         Just p -> return p
         Nothing -> Left $ "Error parsing package name " ++ show n
 
-buildTarget :: PackageName -> Target -> Action ()
-buildTarget n TargetAll = void $ askMaybeBuiltLibrary n >> askBuiltExecutables n
-buildTarget n TargetLib = void $ askBuiltLibrary n
-buildTarget n TargetAllExes = void $ askBuiltExecutables n
-buildTarget n (TargetExe e) = void $ askBuiltExecutable n e
+buildTarget :: MVar Integer -> PackageName -> Target -> Action ()
+buildTarget v n TargetAll = void $ askMaybeBuiltLibrary n >> askBuiltExecutables n
+                                    >> liftIO (modifyMVar v $ \x -> do
+                                                    let y = x + 1
+                                                    y `seq` return (y, y))
+                                        >>= putNormal . show
+buildTarget _ n TargetLib = void $ askBuiltLibrary n
+buildTarget _ n TargetAllExes = void $ askBuiltExecutables n
+buildTarget _ n (TargetExe e) = void $ askBuiltExecutable n e
