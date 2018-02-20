@@ -171,16 +171,15 @@ findPierYamlFile Nothing = getCurrentDirectory >>= loop
             | otherwise -> loop parent
 
 runWithOptions
-    :: IORef (IO ()) -- ^ Sink for what to do after the build
-    -> HandleTemps
+    :: HandleTemps
     -> CommandOpt
     -> Rules ()
-runWithOptions _ _ Clean = cleaning True
-runWithOptions _ _ CleanAll = do
+runWithOptions _ Clean = cleaning True
+runWithOptions _ CleanAll = do
     liftIO unfreezeArtifacts
     cleaning True
     cleanAll
-runWithOptions _ _ (Build targets) = do
+runWithOptions _ (Build targets) = do
     cleaning False
     action $ do
         -- Build everything if the targets list is empty
@@ -189,17 +188,17 @@ runWithOptions _ _ (Build targets) = do
                                 <$> askConfig
                         else pure targets
         forP targets' (uncurry buildTarget)
-runWithOptions next ht (Run sandbox (pkg, target) args) = do
+runWithOptions ht (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
-        liftIO $ writeIORef next $
+        runAfter $
             case sandbox of
                 Sandbox -> callArtifact ht (builtExeDataFiles exe)
                                 (builtBinary exe) args
                 NoSandbox -> cmd_ (WithStderr False)
                                 (pathIn $ builtBinary exe) args
-runWithOptions _ _ (Which (pkg, target)) = do
+runWithOptions _ (Which (pkg, target)) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
@@ -218,10 +217,6 @@ buildExeTarget pkg target = do
 main :: IO ()
 main = do
     (commonOpts, cmdOpt) <- execParser parser
-    -- A store for an optional action to run after building.
-    -- It may be set by runWithOptions.  This lets `pier run` "break" out
-    -- of the Rules/Action monads.
-    next <- newIORef $ pure ()
     -- Run relative to the `pier.yaml` file.
     -- Afterwards, move explicitly back into the original directory in case
     -- this code is being interpreted by ghci.
@@ -239,8 +234,7 @@ main = do
             downloadRules $ downloadLocation commonOpts
             installGhcRules
             configRules pierYamlFile
-            runWithOptions next ht cmdOpt
-        join $ readIORef next
+            runWithOptions ht cmdOpt
 
 -- TODO: move into Build.hs
 data Target

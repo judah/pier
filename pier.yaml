@@ -3,3 +3,6 @@ resolver: lts-10.3
 packages:
   - '.'
   - 'example'
+
+extra-deps:
+  - shake-0.16.2
