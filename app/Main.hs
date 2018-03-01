@@ -188,7 +188,16 @@ runWithOptions _ _ (Build targets) = do
                         then map (,TargetAll) . HM.keys . localPackages
                                 <$> askConfig
                         else pure targets
-        forP targets' (uncurry buildTarget)
+        -- Keep track of the number of targets.
+        -- TODO: count transitive deps as well.
+        let numTargets = length targets'
+        successCount <- liftIO $ newIORef (0::Int)
+        forP targets' $ \(p,t) -> do
+                            buildTarget p t
+                            k <- liftIO $ atomicModifyIORef' successCount
+                                        $ \n -> let n' = n+1 in (n', n')
+                            putLoud $ "Built " ++ showTarget p t
+                                    ++ " (" ++ show k ++ "/" ++ show numTargets ++ ")"
 runWithOptions next ht (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
@@ -249,6 +258,13 @@ data Target
     | TargetAllExes
     | TargetExe String
     deriving Show
+
+showTarget :: PackageName -> Target -> String
+showTarget pkg t = display pkg ++ case t of
+                TargetAll -> ""
+                TargetLib -> ":lib"
+                TargetAllExes -> ":exe"
+                TargetExe e -> ":exe:" ++ e
 
 parseTarget :: Parser (PackageName, Target)
 parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
