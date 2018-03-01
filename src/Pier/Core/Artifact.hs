@@ -451,6 +451,7 @@ readProgCall dir p as cwd = do
                         , err
                         ]
 
+-- TODO: check the destination files actually exist.
 linkShadow :: FilePath -> Artifact -> FilePath -> IO ()
 linkShadow dir a0 f0 = do
     let out = dir </> pathOut f0
@@ -465,7 +466,11 @@ linkShadow dir a0 f0 = do
                     Directory.createDirectoryIfMissing False f
                     cs <- getRegularContents a
                     mapM_ (\c -> deepLink (a </> c) (f </> c)) cs
-            else createSymbolicLink a f
+            else do
+                    exists <- Directory.doesFileExist a
+                    if exists
+                        then createSymbolicLink a f
+                        else error $ "linkShadow: missing source " ++ show a
 
 showProg :: Prog -> String
 showProg (Shadow a f) = unwords ["Shadow:", pathIn a, "=>", pathOut f]

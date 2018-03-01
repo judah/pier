@@ -235,12 +235,13 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                 deps
     let linkerData = maybe Set.empty (\(_,_,dyn,_) -> Set.singleton dyn)
                         maybeLib
+    transInstallIncludes <- collectInstallIncludes packageSourceDir lbi
     return $ BuiltLibrary (package desc)
             $ transDeps <> TransitiveDeps
                 { transitiveDBs = Set.singleton pkgDb
                 , transitiveLibFiles = Set.singleton libFiles
-                -- TODO:
-                , transitiveIncludeDirs = Set.empty
+                , transitiveIncludeDirs =
+                        maybe Set.empty Set.singleton transInstallIncludes
                 , transitiveDataFiles = linkerData
                         -- TODO: just the lib
                         <> Set.singleton libFiles
@@ -643,15 +644,35 @@ collectPlainDataFiles
     :: PackageDescription -> Artifact -> Action (Maybe Artifact)
 collectPlainDataFiles desc dir = do
     let inDir = dir /> dataDir desc
-    let out = "data-files"
     if null (dataFiles desc)
         then return Nothing
         else Just <$> do
             files <- concat <$> mapM (matchArtifactGlob dir) (dataFiles desc)
-            runCommand (output out)
-                $ prog "mkdir" ["-p", pathOut out]
-                    <> foldMap (\f -> shadow (inDir /> f) (out </> f))
-                        files
+            groupFiles inDir . map (\x -> (x,x)) $ files
+
+collectInstallIncludes :: Artifact -> BuildInfo -> Action (Maybe Artifact)
+collectInstallIncludes dir bi
+    | null (installIncludes bi) = pure Nothing
+    | otherwise = fmap Just (mapM locateHeader (installIncludes bi)
+                                >>= groupFiles dir)
+  where
+    -- | Returns the actual location of that header (potentially in some includeDir)
+    -- paired with the original name of that header without the dir.
+    locateHeader :: FilePath -> Action (FilePath, FilePath)
+    locateHeader f = do
+        let candidates = map (\d -> (d, dir /> d </> f)) ("" : includeDirs bi)
+        existing <- filterM (doesArtifactExist . snd) candidates
+        case existing of
+            (d, _):_ -> return (d </> f, f)
+            _ -> error $ "Couldn't locate install-include " ++ show f
+
+-- | Group source files by shadowing into a single directory.
+groupFiles :: Artifact -> [(FilePath, FilePath)] -> Action Artifact
+groupFiles dir files = let out = "group"
+                   in runCommand (output out)
+                        $ prog "mkdir" ["-p", pathOut out]
+                        <> foldMap (\(f, g) -> shadow (dir /> f) (out </> g))
+                            files
 
 cppVersion :: Version -> String
 cppVersion v = case versionNumbers v of

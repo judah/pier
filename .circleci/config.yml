@@ -31,8 +31,8 @@ jobs:
       - run:
           command: |
             $(stack exec which pier) build -j4 \
-                c2hs hscolour hsndfile hsx2hs lens pandoc pier unix-time wreq xhtml yaml
-      - run: $(stack exec which pier) build # build examples too
+                c2hs hscolour hsndfile hsx2hs lens network-multicast pandoc pier unix-time wreq xhtml yaml
+      - run: $(stack exec which pier) build # also build pier's examples
       - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
       - run: $(stack exec which pier) run hlint src
       - run: 'echo "system-ghc: true" >> example/pier.yaml'
