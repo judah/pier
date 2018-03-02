@@ -213,6 +213,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                         modules
     moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
     cIncludes <- collectCIncludes desc lbi pkgDir
+    extra <- getExtraSrcFiles confd
     maybeLib <- if not shouldBuildLib
             then return Nothing
             else do
@@ -220,7 +221,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                     (liftA2 (,) (output hiDir) (output dynLibFile))
                     $ message (display (package desc) ++ ": building library")
                     <> inputList (moduleBootFiles ++ cIncludes)
-                    <> ghcCommand ghc deps lbi confd
+                    <> ghcCommand ghc deps lbi confd extra
                             [ "-this-unit-id", display $ package desc
                             , "-hidir", hiDir
                             , "-hisuf", "dyn_hi"
@@ -325,12 +326,13 @@ buildExecutableFromPkg confd exe = do
     let cFiles = map (packageSourceDir />) $ cSources bi
     cIncludes <- collectCIncludes desc bi (packageSourceDir />)
     let out = "exe" </> name
+    extra <- getExtraSrcFiles confd
     bin <- runCommand (output out)
         $ message (display (package desc) ++ ": building executable "
                     ++ name)
         <> inputList moduleBootFiles
         <> inputList cIncludes
-        <> ghcCommand ghc deps bi confd
+        <> ghcCommand ghc deps bi confd extra
                 [ "-o", out
                 , "-hidir", "hi"
                 , "-odir", "o"
@@ -360,12 +362,14 @@ ghcCommand
     -> BuiltDeps
     -> BuildInfo
     -> ConfiguredPkg
+    -> ExtraSrcFiles
     -> [String]
     -> [Artifact]
     -> Command
-ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd
-    extraArgs ghcInputs
-        = ghcProg ghc (args ++ map pathIn ghcInputs)
+ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd extraSrcs
+    args ghcInputs
+        = shadowExtraSrcFiles extraSrcs
+            <> ghcProg ghc (allArgs ++ map pathIn ghcInputs)
             <> inputs (transitiveDBs transDeps)
             <> inputs (transitiveLibFiles transDeps)
             <> inputList ghcInputs
@@ -376,7 +380,7 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd
     extensions =
         display (fromMaybe Haskell98 $ defaultLanguage bi)
             : map display (defaultExtensions bi ++ oldExtensions bi)
-    args =
+    allArgs =
         -- Rely on GHC for module ordering and hs-boot files:
         [ "--make"
         , "-v0"
@@ -390,7 +394,11 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd
                 (Set.toList $ transitiveDBs transDeps)
         ++
         concat [["-package", display d] | d <- depPkgs]
+        -- Include files which are sources
         ++ map (("-I" ++) . pathIn . pkgDir) (includeDirs bi)
+        -- Include files which are listed as extra-src-files, and thus shadowed directly into
+        -- the working dir:
+        ++ map ("-I" ++) (includeDirs bi)
         ++ map ("-X" ++) extensions
         ++ concat [opts | (GHC,opts) <- options bi]
         ++ map ("-optP" ++) (cppOptions bi)
@@ -402,7 +410,7 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd
         ++ ["-optc" ++ opt | opt <- ccOptions bi]
         ++ ["-l" ++ libDep | libDep <- extraLibs bi]
         -- TODO: linker options too?
-        ++ extraArgs
+        ++ args
 
 sourceDirArtifacts :: Artifact -> BuildInfo -> [Artifact]
 sourceDirArtifacts packageSourceDir bi
@@ -607,17 +615,35 @@ findBootFile hs = do
     bootExists <- doesArtifactExist hsBoot
     return $ guard bootExists >> return hsBoot
 
+newtype ExtraSrcFiles = ExtraSrcFiles { shadowExtraSrcFiles :: Command }
+
+-- Embed extra-source-files two ways: as regular inputs, and shadowed
+-- directly into the working directory.
+-- They're needed as regular inputs so that, if they're headers, they stay next
+-- to c-sources (which the C include system expects).
+-- They're needed directly in the working directory to be available to template
+-- haskell splices.
+getExtraSrcFiles :: ConfiguredPkg -> Action ExtraSrcFiles
+getExtraSrcFiles pkg
+    = do
+        files <- fmap (nub . concat)
+                    . mapM (matchArtifactGlob (confdSourceDir pkg))
+                    . extraSrcFiles
+                    $ confdDesc pkg
+        return . ExtraSrcFiles $
+            inputList (map (confdSourceDir pkg />) files)
+            <> foldMap (\f -> shadow (confdSourceDir pkg /> f) f)
+                  files
+
 collectCIncludes :: PackageDescription -> BuildInfo -> (FilePath -> Artifact) -> Action [Artifact]
 collectCIncludes desc bi pkgDir = do
     includeInputs <- findIncludeInputs pkgDir bi
-    extraSrcs <- fmap concat $ mapM (matchArtifactGlob (pkgDir ""))
-                            $ extraSrcFiles desc
     extraTmps <- fmap catMaybes . mapM ((\f -> doesArtifactExist f >>= \case
                                                 True -> return (Just f)
                                                 False -> return Nothing)
                                         . pkgDir)
                         $ extraTmpFiles desc
-    return $ includeInputs ++ map (pkgDir "" />) extraSrcs ++ extraTmps
+    return $ includeInputs ++ extraTmps
 
 findIncludeInputs :: (FilePath -> Artifact) -> BuildInfo -> Action [Artifact]
 findIncludeInputs pkgDir bi = filterM doesArtifactExist candidates

@@ -17,9 +17,10 @@ dependencies:
 
 default-extensions:
   - BangPatterns
-  - LambdaCase
-  - FlexibleContexts
   - DeriveGeneric
+  - FlexibleContexts
+  - LambdaCase
+  - MultiWayIf
   - NondecreasingIndentation
   - ScopedTypeVariables
   - StandaloneDeriving

@@ -478,10 +478,13 @@ linkShadow dir a0 f0 = do
                     cs <- getRegularContents a
                     mapM_ (\c -> deepLink (a </> c) (f </> c)) cs
             else do
-                    exists <- Directory.doesFileExist a
-                    if exists
-                        then createSymbolicLink a f
-                        else error $ "linkShadow: missing source " ++ show a
+                    srcExists <- Directory.doesFileExist a
+                    destExists <- Directory.doesPathExist f
+                    if
+                        | not srcExists -> error $ "linkShadow: missing source " ++ show a
+                        | destExists -> error $ "linkShadow: destination already exists: "
+                                                    ++ show f
+                        | otherwise -> createSymbolicLink a f
 
 showProg :: Prog -> String
 showProg (Shadow a f) = unwords ["Shadow:", pathIn a, "=>", f]
