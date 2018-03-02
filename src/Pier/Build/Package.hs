@@ -37,7 +37,7 @@ getPackageSourceDir pkg = do
     tarball <- downloadCabalPackage pkg
     runCommand (output outDir)
         $ message ("Unpacking " ++ display pkg)
-        <> prog "tar" ["-xzf", pathIn tarball, "-C", pathOut (takeDirectory outDir)]
+        <> prog "tar" ["-xzf", pathIn tarball, "-C", takeDirectory outDir]
         <> input tarball
   where
     outDir = "package/raw" </> display pkg
@@ -53,7 +53,7 @@ configurePackage plan flags packageSourceDir = do
             configuredPackage <- runCommand (output configuredDir)
                 $ shadow packageSourceDir configuredDir
                 <> message ("Configuring " ++ name)
-                <> withCwd (pathOut configuredDir) (progTemp (configuredDir </> "configure") [])
+                <> withCwd configuredDir (progTemp (configuredDir </> "configure") [])
             let buildInfoFile = configuredPackage />
                                     (name <.> "buildinfo")
             buildInfoExists <- doesArtifactExist buildInfoFile

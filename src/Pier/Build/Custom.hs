@@ -121,7 +121,7 @@ processTemplate
 processTemplate ghc baseTemplate outFile args = do
     a <- runCommand (output outFile)
         $ ghcProg ghc
-            (["-o", pathOut outFile, "-E", "-cpp", pathIn baseTemplate] ++ args)
+            (["-o", outFile, "-E", "-cpp", pathIn baseTemplate] ++ args)
         <> input baseTemplate
     writeArtifact outFile . unlines . map mungeLinePragma . lines
         =<< readArtifact a

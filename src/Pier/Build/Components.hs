@@ -222,12 +222,12 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                     <> inputList (moduleBootFiles ++ cIncludes)
                     <> ghcCommand ghc deps lbi confd
                             [ "-this-unit-id", display $ package desc
-                            , "-hidir", pathOut hiDir
+                            , "-hidir", hiDir
                             , "-hisuf", "dyn_hi"
                             , "-osuf", "dyn_o"
-                            , "-odir", pathOut oDir
+                            , "-odir", oDir
                             , "-shared", "-dynamic"
-                            , "-o", pathOut dynLibFile
+                            , "-o", dynLibFile
                             ]
                             (moduleFiles ++ cFiles)
                 return $ Just (libHSName, lib, dynLib, hiDir')
@@ -312,8 +312,6 @@ buildExecutableFromPkg confd exe = do
         <- askBuiltDeps $ targetDepNamesOrAllDeps desc bi
     conf <- askConfig
     let ghc = configGhc conf
-    let outputPrefix = display (packageName $ package desc)
-                        </> "exe" </> name
     let cIncludeDirs = transitiveIncludeDirs transDeps
                         <> Set.map (packageSourceDir />)
                                  (Set.fromList $ ifNullDirs $ includeDirs bi)
@@ -326,15 +324,16 @@ buildExecutableFromPkg confd exe = do
     moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
     let cFiles = map (packageSourceDir />) $ cSources bi
     cIncludes <- collectCIncludes desc bi (packageSourceDir />)
-    bin <- runCommand (output name)
+    let out = "exe" </> name
+    bin <- runCommand (output out)
         $ message (display (package desc) ++ ": building executable "
                     ++ name)
         <> inputList moduleBootFiles
         <> inputList cIncludes
         <> ghcCommand ghc deps bi confd
-                [ "-o", pathOut name
-                , "-hidir", outputPrefix </> "hi"
-                , "-odir", outputPrefix </> "o"
+                [ "-o", out
+                , "-hidir", "hi"
+                , "-odir", "o"
                 , "-dynamic"
                 , "-threaded"
                 ]
@@ -448,13 +447,13 @@ registerPackage ghc pkg bi maybeLib (BuiltDeps depPkgs transDeps)
     let db = "db"
     runCommand (liftA2 (,) (output db) (output pre))
         $ collectLibInputs
-            <> ghcPkgProg ghc ["init", pathOut db]
+            <> ghcPkgProg ghc ["init", db]
             <> ghcPkgProg ghc
                     (["-v0"]
                     ++ [ "--package-db=" ++ pathIn f
                        | f <-  Set.toList $ transitiveDBs transDeps
                        ]
-                    ++ ["--package-db", pathOut db, "register",
+                    ++ ["--package-db", db, "register",
                                pathIn spec])
             <> input spec
             <> inputs (transitiveDBs transDeps)
@@ -550,7 +549,7 @@ search ghc bi cIncludeDirs m srcDir
         happy <- lift $ askBuiltExecutable (mkPackageName "happy") "happy"
         lift . runCommand (output relOutput)
              $ progExe happy
-                     ["-o", pathOut relOutput, pathIn yFile]
+                     ["-o", relOutput, pathIn yFile]
                 <> input yFile
 
     genHsc2hs = do
@@ -559,7 +558,7 @@ search ghc bi cIncludeDirs m srcDir
         let relOutput = toFilePath m <.> "hs"
         lift $ runCommand (output relOutput)
              $ hsc2hsProg ghc
-                      (["-o", pathOut relOutput
+                      (["-o", relOutput
                        , pathIn hsc
                        ]
                        -- TODO: CPP options?
@@ -578,7 +577,7 @@ search ghc bi cIncludeDirs m srcDir
         alex <- lift $ askBuiltExecutable (mkPackageName "alex") "alex"
         lift . runCommand (output relOutput)
             $ progExe alex
-                     ["-o", pathOut relOutput, pathIn xFile]
+                     ["-o", relOutput, pathIn xFile]
                <> input xFile
     genC2hs = do
         let chsFile = srcDir /> toFilePath m <.> "chs"
@@ -588,7 +587,7 @@ search ghc bi cIncludeDirs m srcDir
         lift . runCommand (output relOutput)
              $ input chsFile
             <> progExe c2hs
-                    (["-o", pathOut relOutput, pathIn chsFile]
+                    (["-o", relOutput, pathIn chsFile]
                     ++ ["--include=" ++ pathIn f | f <- Set.toList cIncludeDirs]
                     ++ ["--cppopts=" ++ f | f <- ccOptions bi
                                                     ++ cppOptions bi]
@@ -670,7 +669,7 @@ collectInstallIncludes dir bi
 groupFiles :: Artifact -> [(FilePath, FilePath)] -> Action Artifact
 groupFiles dir files = let out = "group"
                    in runCommand (output out)
-                        $ prog "mkdir" ["-p", pathOut out]
+                        $ prog "mkdir" ["-p", out]
                         <> foldMap (\(f, g) -> shadow (dir /> f) (out </> g))
                             files
 

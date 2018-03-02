@@ -286,11 +286,11 @@ downloadAndInstallGHC version = do
        (output installDir)
        $ message "Unpacking GHC"
           <> input tar
-          <> prog "tar" ["-xJf", pathIn tar, "-C", pathOut ""]
-          <> withCwd (pathOut unpackedDir)
+          <> prog "tar" ["-xJf", pathIn tar]
+          <> withCwd unpackedDir
                 (message "Installing GHC locally"
                 <> progTemp (unpackedDir </> "configure")
-                        ["--prefix=${TMPDIR}/" ++ pathOut installDir]
+                        ["--prefix=${TMPDIR}/" ++ installDir]
                 <> prog "make" ["install"])
     return InstalledGhc { ghcLibRoot = installed /> "lib" </> versionedGhc version
                         , ghcInstalledVersion = version
@@ -326,7 +326,7 @@ makeRelativeGlobalDb corePkgs ghc = do
     confs <- mapM makePkgConf builtinPackages
     -- let globalRelativePackageDb = "global-packages/package-fixed.conf.d"
     let ghcFixed = "ghc-fixed"
-    let db = pathOut (ghcFixed </> packageConfD)
+    let db = ghcFixed </> packageConfD
     let ghcPkg = progTemp (ghcFixed </> "bin/ghc-pkg")
     ghcDir <- runCommand (output ghcFixed)
                 $ shadow (ghcLibRoot ghc) ghcFixed

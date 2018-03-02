@@ -8,7 +8,7 @@ This is a layer on top of Shake which enables build actions to be written in a
 >     let result = "result.tar"
 >     runCommand (output result)
 >        $ foldMap input contents
->          <> prog "tar" (["-cf", pathOut result] ++ map pathIn contents)
+>          <> prog "tar" (["-cf", result] ++ map pathIn contents)
 
 This approach generally leads to simpler logic than backwards-defined build systems such as
 make or (normal) Shake, where each step of the build logic must be written as a
@@ -72,7 +72,6 @@ module Pier.Core.Artifact
     , progA
     , progTemp
     , pathIn
-    , pathOut
     , withCwd
     , createDirectoryA
     ) where
@@ -157,8 +156,7 @@ progTemp p as = Command [ProgCall (CallTemp p) as "."] Set.empty
 message :: String -> Command
 message s = Command [Message s] Set.empty
 
--- | Runs a command within the given directory, which may be constructed by either `pathIn` or
--- `pathOut`.
+-- | Runs a command within the given (relative) directory.
 withCwd :: FilePath -> Command -> Command
 withCwd path (Command ps as)
     | isAbsolute path = error $ "withCwd: expected relative path, got " ++ show path
@@ -208,7 +206,7 @@ instance Applicative Output where
 
 -- | Register a single output of a command.
 --
--- The input must be a relative path and nontrivial (i.e., not @"."@ or @""@). 
+-- The input must be a relative path and nontrivial (i.e., not @"."@ or @""@).
 output :: FilePath -> Output Artifact
 output f
     | normalise f == "." = error $ "Can't output empty path " ++ show f
@@ -241,6 +239,9 @@ hashDir h = artifactDir </> hashString h
 artifactDir :: FilePath
 artifactDir = pierFile "artifact"
 
+externalArtifactDir :: FilePath
+externalArtifactDir = artifactDir </> "external"
+
 hashString :: Hash -> String
 hashString (Hash h) = BC.unpack h
 
@@ -261,7 +262,12 @@ data Source = Built Hash | External
 -- If it is a relative path, changes to the file will cause rebuilds of
 -- Commands and Rules that dependended on it.
 externalFile :: FilePath -> Artifact
-externalFile = Artifact External . normalise
+externalFile f
+    | null f' = error "externalFile: empty input"
+    | artifactDir `List.isPrefixOf` f' = error $ "externalFile: forbidden prefix: " ++ show f'
+    | otherwise = Artifact External f'
+  where
+    f' = normalise f
 
 -- | Create a reference to a sub-file of the given 'Artifact', which must
 -- refer to a directory.
@@ -271,7 +277,17 @@ Artifact source f /> g = Artifact source $ normalise $ f </> g
 infixr 5 />  -- Same as </>
 
 artifactRules :: HandleTemps -> Rules ()
-artifactRules ht = commandRules ht >> writeArtifactRules
+artifactRules ht = do
+    liftIO createExternalLink
+    commandRules ht
+    writeArtifactRules
+
+createExternalLink :: IO ()
+createExternalLink = do
+    exists <- doesPathExist externalArtifactDir
+    unless exists $ do
+        createParentIfMissing externalArtifactDir
+        createSymbolicLink "../.." externalArtifactDir
 
 -- | The build rule type for commands.
 data CommandQ = CommandQ
@@ -332,7 +348,7 @@ commandRules ht = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> 
       -- When it's done, we'll move the explicit set of outputs into
       -- the result location.
       withPierTempDirectoryAction ht (hashString h) $ \tmpDir -> do
-        let tmpPathOut = (tmpDir </>) . pathOut
+        let tmpPathOut = (tmpDir </>)
 
         liftIO $ collectInputs inps tmpDir
         mapM_ (createParentIfMissing . tmpPathOut) outs
@@ -364,11 +380,6 @@ putChatty :: String -> Action ()
 putChatty s = do
     v <- shakeVerbosity <$> getShakeOptions
     when (v >= Chatty) $ putNormal s
-
--- | Returns the output location where to put a file so that it is available
--- for capture by 'output'.
-pathOut :: FilePath -> FilePath
-pathOut f = artifactDir </> "out" </> f
 
 -- TODO: more hermetic?
 collectInputs :: Set Artifact -> FilePath -> IO ()
@@ -427,7 +438,7 @@ readProgCall dir p as cwd = do
     let p' = case p of
                 CallEnv s -> s
                 CallArtifact f -> dir </> pathIn f
-                CallTemp f -> dir </> pathOut f
+                CallTemp f -> dir </> f
     (ret, Stdout out, Stderr err)
         <- quietly $ command
                     [ Cwd $ dir </> cwd
@@ -454,7 +465,7 @@ readProgCall dir p as cwd = do
 -- TODO: check the destination files actually exist.
 linkShadow :: FilePath -> Artifact -> FilePath -> IO ()
 linkShadow dir a0 f0 = do
-    let out = dir </> pathOut f0
+    let out = dir </> f0
     createParentIfMissing out
     rootDir <- Directory.getCurrentDirectory
     deepLink (rootDir </> pathIn a0) out
@@ -473,7 +484,7 @@ linkShadow dir a0 f0 = do
                         else error $ "linkShadow: missing source " ++ show a
 
 showProg :: Prog -> String
-showProg (Shadow a f) = unwords ["Shadow:", pathIn a, "=>", pathOut f]
+showProg (Shadow a f) = unwords ["Shadow:", pathIn a, "=>", f]
 showProg (Message m) = "Message: " ++ show m
 showProg (ProgCall call args cwd) =
     wrapCwd
@@ -486,7 +497,7 @@ showProg (ProgCall call args cwd) =
 
     showCall (CallArtifact a) = pathIn a
     showCall (CallEnv f) = f
-    showCall (CallTemp f) = pathOut f
+    showCall (CallTemp f) = f -- TODO: differentiate from CallEnv
 
 showCommand :: CommandQ -> String
 showCommand (CommandQ (Command progs inps) outputs) = unlines $
@@ -495,7 +506,7 @@ showCommand (CommandQ (Command progs inps) outputs) = unlines $
     ++ map showProg progs
   where
     showInput i = "Input: " ++ pathIn i
-    showOutput a = "Output: " ++ pathOut a
+    showOutput a = "Output: " ++ a
 
 stdoutOutput :: FilePath
 stdoutOutput = "_stdout"
@@ -568,7 +579,7 @@ linkArtifact _ (Artifact External f)
     | isAbsolute f = return ()
 linkArtifact dir a = do
     curDir <- getCurrentDirectory
-    let realPath = curDir </> pathIn a
+    let realPath = curDir </> realPathIn a
     let localPath = dir </> pathIn a
     checkExists realPath
     createParentIfMissing localPath
@@ -583,10 +594,17 @@ linkArtifact dir a = do
                         ++ " for artifact " ++ show a
 
 
--- | Returns the relative path to an Artifact, when provided to a 'Command' by 'input'.
+-- | Returns the relative path to an Artifact within the sandbox, when provided
+-- to a 'Command' by 'input'.
 pathIn :: Artifact -> FilePath
-pathIn (Artifact External f) = f
+pathIn (Artifact External f) = externalArtifactDir </> f
 pathIn (Artifact (Built h) f) = hashDir h </> f
+
+-- | Returns the relative path to an artifact within the root directory.
+realPathIn :: Artifact -> FilePath
+realPathIn (Artifact External f) = f
+realPathIn (Artifact (Built h) f) = hashDir h </> f
+
 
 -- | Replace the extension of an Artifact.  In particular,
 --
@@ -650,4 +668,4 @@ callArtifact ht inps bin args = withPierTempDirectory ht "exec" $ \tmp -> do
         (dir </> tmp </> pathIn bin) args
 
 createDirectoryA :: FilePath -> Command
-createDirectoryA f = prog "mkdir" ["-p", pathOut f]
+createDirectoryA f = prog "mkdir" ["-p", f]
