@@ -15,7 +15,7 @@ jobs:
             mkdir -p $HOME/.local/bin
       - run:
           command: |
-            sudo apt-get install libgmp3-dev libsndfile1-dev
+            sudo apt-get install libgmp3-dev libsndfile1-dev libxft-dev
             mkdir -p $HOME/.local/bin
             curl -L https://github.com/commercialhaskell/stack/releases/download/v1.6.1/stack-1.6.1-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
 
@@ -32,7 +32,8 @@ jobs:
           command: |
             $(stack exec which pier) build -j4 \
                 c2hs elm-core-sources hscolour hsndfile hsx2hs lens \
-                network-multicast pandoc pier unix-time wreq xhtml yaml
+                network-multicast pandoc pier unix-time wreq xhtml yaml \
+                X11-xft
       - run: $(stack exec which pier) build # also build pier's examples
       - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
       - run: $(stack exec which pier) run hlint src

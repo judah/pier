@@ -28,6 +28,7 @@ import Distribution.PackageDescription
 import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
 import Distribution.System (buildOS, OS(..))
 import Distribution.Text
+import Distribution.Types.PkgconfigDependency
 import Distribution.Version (Version, mkVersion, versionNumbers)
 import GHC.Generics hiding (packageName)
 import Language.Haskell.Extension
@@ -208,7 +209,8 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                                                 $ includeDirs lbi)
     let cFiles = map pkgDir $ cSources lbi
     datas <- collectDataFiles ghc desc packageSourceDir
-    moduleFiles <- mapM (findModule ghc desc lbi cIncludeDirs datas
+    pkgConf <- getPkgConfig lbi
+    moduleFiles <- mapM (findModule ghc desc lbi pkgConf cIncludeDirs datas
                             $ sourceDirArtifacts packageSourceDir lbi)
                         modules
     moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
@@ -221,7 +223,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                     (liftA2 (,) (output hiDir) (output dynLibFile))
                     $ message (display (package desc) ++ ": building library")
                     <> inputList (moduleBootFiles ++ cIncludes)
-                    <> ghcCommand ghc deps lbi confd extra
+                    <> ghcCommand ghc deps lbi confd extra pkgConf
                             [ "-this-unit-id", display $ package desc
                             , "-hidir", hiDir
                             , "-hisuf", "dyn_hi"
@@ -232,7 +234,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                             ]
                             (moduleFiles ++ cFiles)
                 return $ Just (libHSName, lib, dynLib, hiDir')
-    (pkgDb, libFiles) <- registerPackage ghc (package desc) lbi maybeLib
+    (pkgDb, libFiles) <- registerPackage ghc (package desc) lbi pkgConf maybeLib
                 deps
     let linkerData = maybe Set.empty (\(_,_,dyn,_) -> Set.singleton dyn)
                         maybeLib
@@ -318,10 +320,11 @@ buildExecutableFromPkg confd exe = do
                                  (Set.fromList $ ifNullDirs $ includeDirs bi)
     datas <- collectDataFiles ghc desc packageSourceDir
     let sourceLocs = sourceDirArtifacts packageSourceDir bi
-    otherModuleFiles <- mapM (findModule ghc desc bi cIncludeDirs datas
+    pkgConf <- getPkgConfig bi
+    otherModuleFiles <- mapM (findModule ghc desc bi pkgConf cIncludeDirs datas
                                 sourceLocs)
                          $ addIfMissing pathsMod $ otherModules bi
-    mainFile <- findMainFile ghc bi cIncludeDirs sourceLocs (modulePath exe)
+    mainFile <- findMainFile ghc bi pkgConf cIncludeDirs sourceLocs (modulePath exe)
     moduleBootFiles <- catMaybes <$> mapM findBootFile otherModuleFiles
     let cFiles = map (packageSourceDir />) $ cSources bi
     cIncludes <- collectCIncludes desc bi (packageSourceDir />)
@@ -332,7 +335,7 @@ buildExecutableFromPkg confd exe = do
                     ++ name)
         <> inputList moduleBootFiles
         <> inputList cIncludes
-        <> ghcCommand ghc deps bi confd extra
+        <> ghcCommand ghc deps bi confd extra pkgConf
                 [ "-o", out
                 , "-hidir", "hi"
                 , "-odir", "o"
@@ -363,10 +366,11 @@ ghcCommand
     -> BuildInfo
     -> ConfiguredPkg
     -> ExtraSrcFiles
+    -> PkgConfigData
     -> [String]
     -> [Artifact]
     -> Command
-ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd extraSrcs
+ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd extraSrcs pkgConf
     args ghcInputs
         = shadowExtraSrcFiles extraSrcs
             <> ghcProg ghc (allArgs ++ map pathIn ghcInputs)
@@ -407,8 +411,9 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) bi confd extraSrcs
         ++ ["-O0"]
         -- TODO: enable warnings for local builds
         ++ ["-w"]
-        ++ ["-optc" ++ opt | opt <- ccOptions bi]
+        ++ ["-optc" ++ opt | opt <- ccOptions bi ++ pkgConfigCompileFlags pkgConf]
         ++ ["-l" ++ libDep | libDep <- extraLibs bi]
+        ++ ["-optl" ++ f | f <- pkgConfigLinkFlags pkgConf]
         -- TODO: linker options too?
         ++ args
 
@@ -420,6 +425,7 @@ registerPackage
     :: InstalledGhc
     -> PackageIdentifier
     -> BuildInfo
+    -> PkgConfigData
     -> Maybe ( String  -- Library name for linking
              , Library
              , Artifact -- dyn lib archive
@@ -427,7 +433,7 @@ registerPackage
              )
     -> BuiltDeps
     -> Action (Artifact, Artifact)
-registerPackage ghc pkg bi maybeLib (BuiltDeps depPkgs transDeps)
+registerPackage ghc pkg bi pkgConf maybeLib (BuiltDeps depPkgs transDeps)
     = do
     let pre = "files"
     let (collectLibInputs, libDesc) = case maybeLib of
@@ -449,6 +455,7 @@ registerPackage ghc pkg bi maybeLib (BuiltDeps depPkgs transDeps)
         , "id: " ++ display pkg
         , "key: " ++ display pkg
         , "extra-libraries: " ++ unwords (extraLibs bi)
+        , "ld-options: " ++ unwords (pkgConfigLinkFlags pkgConf)
         , "depends: " ++ unwords (map display depPkgs)
         ]
         ++ libDesc
@@ -477,14 +484,15 @@ findModule
     :: InstalledGhc
     -> PackageDescription
     -> BuildInfo
+    -> PkgConfigData
     -> Set Artifact -- ^ Transitive C include dirs
     -> Maybe Artifact     -- ^ data dir
     -> [Artifact]   -- ^ Source directory to check
     -> ModuleName
     -> Action Artifact
-findModule ghc desc bi cIncludeDirs datas paths m = do
+findModule ghc desc bi pkgConf cIncludeDirs datas paths m = do
     found <- runMaybeT $ genPathsModule m (package desc) datas <|>
-                msum (map (search ghc bi cIncludeDirs m) paths)
+                msum (map (search ghc bi pkgConf cIncludeDirs m) paths)
     maybe (error $ "Missing module " ++ display m
                     ++ "; searched " ++ show paths)
         return found
@@ -492,14 +500,15 @@ findModule ghc desc bi cIncludeDirs datas paths m = do
 findMainFile
     :: InstalledGhc
     -> BuildInfo
+    -> PkgConfigData
     -> Set Artifact -- ^ Transitive C include dirs
     -> [Artifact]  -- ^ Source directory to check
     -> FilePath
     -> Action Artifact
-findMainFile ghc bi cIncludeDirs paths f = do
+findMainFile ghc bi pkgConf cIncludeDirs paths f = do
     found <- runMaybeT $ msum $
                 map findFileDirectly paths ++
-                map (search ghc bi cIncludeDirs $ filePathToModule f) paths
+                map (search ghc bi pkgConf cIncludeDirs $ filePathToModule f) paths
     maybe (error $ "Missing main file " ++ f
                     ++ "; searched " ++ show paths)
         return found
@@ -537,11 +546,12 @@ genPathsModule m pkg datas = do
 search
     :: InstalledGhc
     -> BuildInfo
+    -> PkgConfigData
     -> Set Artifact -- ^ Transitive C include dirs
     -> ModuleName
     -> Artifact -- ^ Source directory to check
     -> MaybeT Action Artifact
-search ghc bi cIncludeDirs m srcDir
+search ghc bi pkgConf cIncludeDirs m srcDir
     = genHsc2hs <|>
       genHappy "y" <|>
       genHappy "ly" <|>
@@ -574,7 +584,8 @@ search ghc bi cIncludeDirs m srcDir
                                                     ++ cppOptions bi]
                        ++ ["-I" ++ pathIn f | f <- Set.toList cIncludeDirs]
                        ++ ["-D__GLASGOW_HASKELL__="
-                             ++ cppVersion (ghcInstalledVersion ghc)])
+                             ++ cppVersion (ghcInstalledVersion ghc)]
+                       ++ pkgConfigCompileFlags pkgConf)
                 <> input hsc <> inputs cIncludeDirs
 
     genAlex ext = do
@@ -754,3 +765,23 @@ addHappyAlexSourceDirs confd
     | packageName (confdDesc confd) `elem` map mkPackageName ["happy", "alex"]
         = confd { confdDesc = addDistSourceDirs $ confdDesc confd }
     | otherwise = confd
+
+-- TODO: wrap *all* compile flags in here
+data PkgConfigData = PkgConfigData
+    { pkgConfigCompileFlags :: [String]
+    , pkgConfigLinkFlags :: [String]
+    } deriving Show
+
+instance Monoid PkgConfigData where
+    mempty = PkgConfigData [] []
+    PkgConfigData a b `mappend` PkgConfigData a' b'
+        = PkgConfigData (a ++ a') (b ++ b')
+
+-- TODO: use version information, and capture output better.
+getPkgConfig :: BuildInfo -> Action PkgConfigData
+getPkgConfig = fmap mconcat . mapM getDep . pkgconfigDepends
+  where
+    getDep (PkgconfigDependency name _) = liftA2 PkgConfigData
+        (runPkgConfig [display name, "--cflags"])
+        (runPkgConfig [display name, "--libs"])
+    runPkgConfig = fmap words . runCommandStdout . prog "pkg-config"
