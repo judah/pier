@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/ruby:2.1.10
+      - image: judah/pier-ci:v1
     steps:
       - checkout
       - restore_cache:
@@ -12,12 +12,6 @@ jobs:
       - run:
           command: |
             echo 'export PATH=$HOME/.local/bin:$PATH' >> $BASH_ENV
-            mkdir -p $HOME/.local/bin
-      - run:
-          command: |
-            sudo apt-get install libgmp3-dev libsndfile1-dev libxft-dev libxrandr-dev
-            mkdir -p $HOME/.local/bin
-            curl -L https://github.com/commercialhaskell/stack/releases/download/v1.6.1/stack-1.6.1-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
 
       # Build with `stack`
       - run: stack --no-terminal install weeder hlint
