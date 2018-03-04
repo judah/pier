@@ -2,22 +2,16 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/ruby:2.1.10
+      - image: judah/pier-ci:v1
     steps:
       - checkout
       - restore_cache:
           keys:
-            - stack-cache-v2-{{ arch }}-{{ .Branch }}
-            - stack-cache-v2-{{ arch }}-master
+            - stack-cache-v3-{{ arch }}-{{ .Branch }}
+            - stack-cache-v3-{{ arch }}-master
       - run:
           command: |
             echo 'export PATH=$HOME/.local/bin:$PATH' >> $BASH_ENV
-            mkdir -p $HOME/.local/bin
-      - run:
-          command: |
-            sudo apt-get install libgmp3-dev libsndfile1-dev
-            mkdir -p $HOME/.local/bin
-            curl -L https://github.com/commercialhaskell/stack/releases/download/v1.6.1/stack-1.6.1-linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack'
 
       # Build with `stack`
       - run: stack --no-terminal install weeder hlint
@@ -37,10 +31,10 @@ jobs:
       - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
       - run: $(stack exec which pier) run hlint src
       - run: 'echo "system-ghc: true" >> example/pier.yaml'
-      - run: $(stack exec which pier) build text unix-compat
+      - run: stack exec pier -- build --pier-yaml=example/pier.yaml text unix-compat
 
       - save_cache:
-            key: stack-cache-v2-{{ arch }}-{{ .Branch }}-{{ epoch }}
+            key: stack-cache-v3-{{ arch }}-{{ .Branch }}-{{ epoch }}
             paths:
                 - ~/.stack
                 - .stack-work
