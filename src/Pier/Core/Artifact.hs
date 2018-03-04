@@ -538,6 +538,8 @@ dedupArtifacts = loop . Set.toAscList
     -- subdirectories with the same hash will appear consecutively after directories
     -- that contain them.
     loop (a@(Artifact (Built h) f) : Artifact (Built h') f' : fs)
+        -- TODO BUG: "Picture", "Picture.hs" and Picture/Foo.hs" sort in the wrong way
+        -- so "Picture" and "Picture/Foo.hs" aren't deduped.
         | h == h', (f <//> "*") ?== f' = loop (a:fs)
     loop (f:fs) = f : loop fs
     loop [] = []
