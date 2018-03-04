@@ -533,14 +533,24 @@ checkAllDistinctPaths as =
 dedupArtifacts :: Set Artifact -> [Artifact]
 dedupArtifacts = loop . Set.toAscList
   where
-    -- Loop over artifacts built from the same command.
-    -- toAscList plus lexicographic sorting means that
-    -- subdirectories with the same hash will appear consecutively after directories
-    -- that contain them.
-    loop (a@(Artifact (Built h) f) : Artifact (Built h') f' : fs)
-        | h == h', (f <//> "*") ?== f' = loop (a:fs)
-    loop (f:fs) = f : loop fs
+    -- Lexicographic sorting plus toAscList means that:
+    -- - The same hashes will be grouped together
+    -- - Prefixes will appear before longer strings
+    -- However, this doesn't mean that files are consecutively after their parent
+    -- directory.  For example, consider: ["Foo", "Foo.hs", "Foo/Bar.hs"]
+    -- Thus: for each file not already deduped:
+    -- - First collect all consecutive files for which "Foo" is a prefix
+    -- - Then, remove everything for which "Foo/" is a prefix.
+    loop (a:as) = let
+        (bs, bs') = span (isStrPrefix a) as
+        in a : loop (filter (not . isPathPrefix a) bs ++ bs')
     loop [] = []
+
+    isStrPrefix, isPathPrefix :: Artifact -> Artifact -> Bool
+    isStrPrefix (Artifact h f) (Artifact h' f')
+        = h == h' && f `List.isPrefixOf` f'
+    isPathPrefix (Artifact h f) (Artifact h' f')
+        = h == h' && addTrailingPathSeparator f `List.isPrefixOf` f'
 
 freezePath :: FilePath -> IO ()
 freezePath f =
