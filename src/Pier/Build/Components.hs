@@ -301,6 +301,7 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) confd tinfo args
         ++ ["-optc" ++ opt | opt <- ccFlags cflags]
         ++ ["-l" ++ libDep | libDep <- linkLibs cflags]
         ++ ["-optl" ++ f | f <- linkFlags cflags]
+        ++ concat [["-framework", f] | f <- macFrameworks cflags]
         -- TODO: configurable
         ++ ["-O0"]
         -- TODO: just for local builds
@@ -346,6 +347,9 @@ registerPackage ghc pkg bi cflags maybeLib (BuiltDeps depPkgs transDeps)
         -- , "ld-options: " ++ unwords (linkFlags cflags)
         , "depends: " ++ unwords (map display depPkgs)
         ]
+        ++ [ "frameworks: " ++ unwords (macFrameworks cflags)
+           | not (null $ macFrameworks cflags)
+           ]
         ++ libDesc
     let db = "db"
     runCommand (liftA2 (,) (output db) (output pre))

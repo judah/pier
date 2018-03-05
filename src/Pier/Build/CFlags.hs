@@ -7,11 +7,13 @@ module Pier.Build.CFlags
     ) where
 
 import Control.Applicative (liftA2)
+import Control.Monad (guard)
 import Data.Semigroup
 import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes
 import Distribution.PackageDescription
+import Distribution.System (buildOS, OS(OSX))
 import Distribution.Text (display)
 import Distribution.Types.PkgconfigDependency
 import Distribution.Version (versionNumbers)
@@ -45,6 +47,7 @@ data CFlags = CFlags
     , cIncludeDirs :: Set Artifact
     , linkFlags :: [String]
     , linkLibs :: [String]
+    , macFrameworks :: [String]
     }
 
 -- TODO: include macros file too
@@ -59,6 +62,8 @@ getCFlags deps pkgDir bi = do
                     <> transitiveIncludeDirs deps
             , linkFlags = ldOptions bi ++ snd pkgConfFlags
             , linkLibs = extraLibs bi
+            , macFrameworks = guard (buildOS == OSX)
+                                >> frameworks bi
             }
 
 -- TODO: handle version numbers too
