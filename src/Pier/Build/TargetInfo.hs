@@ -50,9 +50,8 @@ getTargetInfo ::
     -> TargetResult
     -> TransitiveDeps
     -> InstalledGhc
-    -> Maybe Artifact
     -> Action TargetInfo
-getTargetInfo confd bi result deps ghc dataFileLoc = do
+getTargetInfo confd bi result deps ghc = do
     let packageSourceDir = confdSourceDir confd
     let cflags = getCFlags deps packageSourceDir bi
     let allOptions = map ("-X" ++)
@@ -69,7 +68,7 @@ getTargetInfo confd bi result deps ghc dataFileLoc = do
                             -- of binaries.
                             -- TODO: consider whether this is intended behavior of Cabal.
                             -> [pathsMod | pathsMod `notElem` otherModules bi]
-    moduleFiles <- mapM (findModule ghc (confdDesc confd) cflags dataFileLoc srcDirs)
+    moduleFiles <- mapM (findModule ghc confd cflags srcDirs)
                             allModules
     moduleBootFiles <- catMaybes <$> mapM findBootFile moduleFiles
     let cFiles = map (packageSourceDir />) $ cSources bi

@@ -21,6 +21,7 @@ import Distribution.Text (display)
 
 import qualified Data.Set as Set
 
+import Pier.Build.ConfiguredPackage
 import Pier.Build.Executable
 import Pier.Build.CFlags
 import Pier.Build.Stackage
@@ -28,14 +29,13 @@ import Pier.Core.Artifact
 
 findModule
     :: InstalledGhc
-    -> PackageDescription
+    -> ConfiguredPackage
     -> CFlags
-    -> Maybe Artifact     -- ^ data dir
     -> [Artifact]   -- ^ Source directory to check
     -> ModuleName
     -> Action Artifact
-findModule ghc desc flags datas paths m = do
-    found <- runMaybeT $ genPathsModule m (package desc) datas <|>
+findModule ghc confd flags paths m = do
+    found <- runMaybeT $ genPathsModule m confd <|>
                 msum (map (search ghc flags m) paths)
     maybe (error $ "Missing module " ++ display m
                     ++ "; searched " ++ show paths)
@@ -61,8 +61,8 @@ findMainFile ghc flags paths f = do
         return candidate
 
 genPathsModule
-    :: ModuleName -> PackageIdentifier -> Maybe Artifact -> MaybeT Action Artifact
-genPathsModule m pkg datas = do
+    :: ModuleName -> ConfiguredPackage -> MaybeT Action Artifact
+genPathsModule m confd = do
     guard $ m == pathsModule
     lift $ writeArtifact ("paths" </> display m <.> "hs") $ unlines
         [ "{-# LANGUAGE CPP #-}"
@@ -76,9 +76,11 @@ genPathsModule m pkg datas = do
         , "getDataFileName :: FilePath -> IO FilePath"
         , "getDataFileName f = (\\d -> d ++ \"/\" ++ f) <$> getDataDir"
         , "getDataDir :: IO FilePath"
-        , "getDataDir = " ++ maybe err (("return " ++) . show . pathIn) datas
+        , "getDataDir = " ++ maybe err (("return " ++) . show . pathIn)
+                                (confdDataFiles confd)
         ]
   where
+    pkg = package (confdDesc confd)
     pathsModule = fromString $ "Paths_" ++ map fixHyphen (display $ pkgName pkg)
     fixHyphen '-' = '_'
     fixHyphen c = c

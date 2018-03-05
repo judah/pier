@@ -11,7 +11,7 @@ module Pier.Build.Components
 
 import Control.Applicative (liftA2)
 import Control.Monad (filterM)
-import Data.List (find, nub)
+import Data.List (find)
 import Data.Semigroup
 import Development.Shake
 import Development.Shake.Classes
@@ -29,7 +29,6 @@ import qualified Distribution.InstalledPackageInfo as IP
 
 import Pier.Build.Config
 import Pier.Build.ConfiguredPackage
-import Pier.Build.Custom
 import Pier.Build.Executable
 import Pier.Build.CFlags
 import Pier.Build.Stackage
@@ -146,29 +145,26 @@ buildLibraryFromDesc
     -> Library
     -> Action BuiltLibrary
 buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
-    let packageSourceDir = confdSourceDir confd
-    let desc = confdDesc confd
+    let pkg = package $ confdDesc confd
     conf <- askConfig
     let ghc = configGhc conf
     let lbi = libBuildInfo lib
-    let hiDir = "hi"
-    let oDir = "o"
-    let libHSName = "HS" ++ display (packageName $ package desc)
-    let dynLibFile = "lib" ++ libHSName
-                        ++ "-ghc" ++ display (ghcVersion $ plan conf) <.> dynExt
-    let shouldBuildLib = not $ null $ exposedModules lib
-    datas <- collectDataFiles ghc desc packageSourceDir
-    extra <- getExtraSrcFiles confd
     tinfo <- getTargetInfo confd lbi (TargetLibrary $ exposedModules lib)
-                transDeps ghc datas
-    maybeLib <- if not shouldBuildLib
+                transDeps ghc
+    maybeLib <- if null $ exposedModules lib
             then return Nothing
             else do
+                let hiDir = "hi"
+                let oDir = "o"
+                let libHSName = "HS" ++ display (packageName pkg)
+                let dynLibFile = "lib" ++ libHSName
+                                    ++ "-ghc" ++ display (ghcVersion $ plan conf)
+                                    <.> dynExt
                 (hiDir', dynLib) <- runCommand
                     (liftA2 (,) (output hiDir) (output dynLibFile))
-                    $ message (display (package desc) ++ ": building library")
-                    <> ghcCommand ghc deps confd extra tinfo
-                            [ "-this-unit-id", display $ package desc
+                    $ message (display pkg ++ ": building library")
+                    <> ghcCommand ghc deps confd tinfo
+                            [ "-this-unit-id", display pkg
                             , "-hidir", hiDir
                             , "-hisuf", "dyn_hi"
                             , "-osuf", "dyn_o"
@@ -177,13 +173,13 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                             , "-o", dynLibFile
                             ]
                 return $ Just (libHSName, lib, dynLib, hiDir')
-    (pkgDb, libFiles) <- registerPackage ghc (package desc) lbi
+    (pkgDb, libFiles) <- registerPackage ghc pkg lbi
                                 (targetCFlags tinfo) maybeLib
                                 deps
     let linkerData = maybe Set.empty (\(_,_,dyn,_) -> Set.singleton dyn)
                         maybeLib
-    transInstallIncludes <- collectInstallIncludes packageSourceDir lbi
-    return $ BuiltLibrary (package desc)
+    transInstallIncludes <- collectInstallIncludes (confdSourceDir confd) lbi
+    return $ BuiltLibrary pkg
             $ transDeps <> TransitiveDeps
                 { transitiveDBs = Set.singleton pkgDb
                 , transitiveLibFiles = Set.singleton libFiles
@@ -234,19 +230,16 @@ buildExecutableFromPkg
 buildExecutableFromPkg confd exe = do
     let name = display $ exeName exe
     let desc = confdDesc confd
-    let packageSourceDir = confdSourceDir confd
     deps@(BuiltDeps _ transDeps)
         <- askBuiltDeps $ targetDepNamesOrAllDeps desc (buildInfo exe)
     ghc <- configGhc <$> askConfig
-    datas <- collectDataFiles ghc desc packageSourceDir
     let out = "exe" </> name
-    extra <- getExtraSrcFiles confd
     tinfo <- getTargetInfo confd (buildInfo exe) (TargetBinary $ modulePath exe)
-                transDeps ghc datas
+                transDeps ghc
     bin <- runCommand (output out)
         $ message (display (package desc) ++ ": building executable "
                     ++ name)
-        <> ghcCommand ghc deps confd extra tinfo
+        <> ghcCommand ghc deps confd tinfo
                 [ "-o", out
                 , "-hidir", "hi"
                 , "-odir", "o"
@@ -256,26 +249,33 @@ buildExecutableFromPkg confd exe = do
     return BuiltExecutable
         { builtBinary = bin
         , builtExeDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
-                                    datas
+                                (confdDataFiles confd)
         }
 
 ghcCommand
     :: InstalledGhc
     -> BuiltDeps
     -> ConfiguredPackage
-    -> ExtraSrcFiles
     -> TargetInfo
     -> [String]
     -> Command
-ghcCommand ghc (BuiltDeps depPkgs transDeps) confd extraSrcs tinfo args
-    = shadowExtraSrcFiles extraSrcs
-        <> ghcProg ghc (allArgs ++ map pathIn (targetSourceInputs tinfo))
-        <> inputs (transitiveDBs transDeps)
+ghcCommand ghc (BuiltDeps depPkgs transDeps) confd tinfo args
+    = inputs (transitiveDBs transDeps)
         <> inputs (transitiveLibFiles transDeps)
         <> inputList (targetSourceInputs tinfo ++ targetOtherInputs tinfo)
         <> input (confdMacros confd)
+        -- Embed extra-source-files two ways: as regular inputs, and shadowed
+        -- directly into the working directory.
+        -- They're needed as regular inputs so that, if they're headers, they
+        -- stay next to c-sources (which the C include system expects).
+        -- They're needed directly in the working directory to be available to
+        -- template haskell splices.
+        <> inputList (map pkgFile $ confdExtraSrcFiles confd)
+        <> foldMap (\f -> shadow (pkgFile f) f) (confdExtraSrcFiles confd)
+        <> ghcProg ghc (allArgs ++ map pathIn (targetSourceInputs tinfo))
   where
     cflags = targetCFlags tinfo
+    pkgFile = (confdSourceDir confd />)
     allArgs =
         -- Rely on GHC for module ordering and hs-boot files:
         [ "--make"
@@ -291,7 +291,7 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) confd extraSrcs tinfo args
         ++
         concat [["-package", display d] | d <- depPkgs]
         -- Include files which are sources
-        ++ map (("-I" ++) . pathIn . (confdSourceDir confd />)) (targetIncludeDirs tinfo)
+        ++ map (("-I" ++) . pathIn . pkgFile) (targetIncludeDirs tinfo)
         -- Include files which are listed as extra-src-files, and thus shadowed directly into
         -- the working dir:
         ++ map ("-I" ++) (targetIncludeDirs tinfo)
@@ -367,45 +367,6 @@ dynExt = case buildOS of
         OSX -> "dylib"
         _ -> "so"
 
-newtype ExtraSrcFiles = ExtraSrcFiles { shadowExtraSrcFiles :: Command }
-
--- Embed extra-source-files two ways: as regular inputs, and shadowed
--- directly into the working directory.
--- They're needed as regular inputs so that, if they're headers, they stay next
--- to c-sources (which the C include system expects).
--- They're needed directly in the working directory to be available to template
--- haskell splices.
-getExtraSrcFiles :: ConfiguredPackage -> Action ExtraSrcFiles
-getExtraSrcFiles pkg
-    = do
-        files <- fmap (nub . concat)
-                    . mapM (matchArtifactGlob (confdSourceDir pkg))
-                    . extraSrcFiles
-                    $ confdDesc pkg
-        return . ExtraSrcFiles $
-            inputList (map (confdSourceDir pkg />) files)
-            <> foldMap (\f -> shadow (confdSourceDir pkg /> f) f)
-                  files
-
-collectDataFiles
-    :: InstalledGhc -> PackageDescription -> Artifact -> Action (Maybe Artifact)
-collectDataFiles ghc desc dir = case display (packageName desc) of
-    "happy" -> Just <$> collectHappyDataFiles ghc dir
-    "alex" -> Just <$> collectAlexDataFiles ghc dir
-    _ -> collectPlainDataFiles desc dir
-
--- TODO: should we filter out packages without data-files?
--- Or short-cut it somewhere else?
-collectPlainDataFiles
-    :: PackageDescription -> Artifact -> Action (Maybe Artifact)
-collectPlainDataFiles desc dir = do
-    let inDir = dir /> dataDir desc
-    if null (dataFiles desc)
-        then return Nothing
-        else Just <$> do
-            files <- concat <$> mapM (matchArtifactGlob dir) (dataFiles desc)
-            groupFiles inDir . map (\x -> (x,x)) $ files
-
 collectInstallIncludes :: Artifact -> BuildInfo -> Action (Maybe Artifact)
 collectInstallIncludes dir bi
     | null (installIncludes bi) = pure Nothing
@@ -421,14 +382,6 @@ collectInstallIncludes dir bi
         case existing of
             (d, _):_ -> return (d </> f, f)
             _ -> error $ "Couldn't locate install-include " ++ show f
-
--- | Group source files by shadowing into a single directory.
-groupFiles :: Artifact -> [(FilePath, FilePath)] -> Action Artifact
-groupFiles dir files = let out = "group"
-                   in runCommand (output out)
-                        $ prog "mkdir" ["-p", out]
-                        <> foldMap (\(f, g) -> shadow (dir /> f) (out </> g))
-                            files
 
 -- | In older versions of Cabal, executables could use packages that were only
 -- explicitly depended on in the library or in other executables.  Some existing

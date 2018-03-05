@@ -67,6 +67,7 @@ module Pier.Core.Artifact
     , inputs
     , inputList
     , shadow
+    , groupFiles
       -- * Running commands
     , prog
     , progA
@@ -674,3 +675,11 @@ callArtifact ht inps bin args = withPierTempDirectory ht "exec" $ \tmp -> do
 
 createDirectoryA :: FilePath -> Command
 createDirectoryA f = prog "mkdir" ["-p", f]
+
+-- | Group source files by shadowing into a single directory.
+groupFiles :: Artifact -> [(FilePath, FilePath)] -> Action Artifact
+groupFiles dir files = let out = "group"
+                   in runCommand (output out)
+                        $ createDirectoryA out
+                        <> foldMap (\(f, g) -> shadow (dir /> f) (out </> g))
+                            files

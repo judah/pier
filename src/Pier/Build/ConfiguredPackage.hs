@@ -5,18 +5,20 @@ module Pier.Build.ConfiguredPackage
     , allDependencies
     ) where
 
+import Data.List (nub)
 import Development.Shake
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
+import Distribution.Text (display)
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 
 import Pier.Build.Config
-import Pier.Build.Custom (addDistSourceDirs)
+import Pier.Build.Custom
 import Pier.Build.Package
-import Pier.Build.Stackage (Flags)
+import Pier.Build.Stackage (Flags, InstalledGhc)
 import Pier.Core.Artifact
 
 data ConfiguredPackage = ConfiguredPackage
@@ -24,6 +26,8 @@ data ConfiguredPackage = ConfiguredPackage
     , confdSourceDir :: Artifact
     , confdMacros :: Artifact
         -- ^ Provides Cabal macros like VERSION_*
+    , confdDataFiles :: Maybe Artifact
+    , confdExtraSrcFiles  :: [FilePath] -- relative to source dir
     }
 
 instance Package ConfiguredPackage where
@@ -47,7 +51,12 @@ getConfiguredPackage p = do
     getConfigured conf flags dir = do
         (desc, dir') <- configurePackage (plan conf) flags dir
         macros <- genCabalMacros conf desc
-        return $ ConfiguredPackage desc dir' macros
+        datas <- collectDataFiles (configGhc conf) desc dir'
+        extras <- fmap (nub . concat)
+                            . mapM (matchArtifactGlob dir')
+                            . extraSrcFiles
+                            $ desc
+        return $ ConfiguredPackage desc dir' macros datas extras
 
 -- For compatibility with Cabal, we generate a single macros file for the
 -- entire package, rather than separately for the library, executables, etc.
@@ -77,3 +86,22 @@ addHappyAlexSourceDirs confd
     | packageName (confdDesc confd) `elem` map mkPackageName ["happy", "alex"]
         = confd { confdDesc = addDistSourceDirs $ confdDesc confd }
     | otherwise = confd
+
+collectDataFiles
+    :: InstalledGhc -> PackageDescription -> Artifact -> Action (Maybe Artifact)
+collectDataFiles ghc desc dir = case display (packageName desc) of
+    "happy" -> Just <$> collectHappyDataFiles ghc dir
+    "alex" -> Just <$> collectAlexDataFiles ghc dir
+    _ -> collectPlainDataFiles desc dir
+
+-- TODO: should we filter out packages without data-files?
+-- Or short-cut it somewhere else?
+collectPlainDataFiles
+    :: PackageDescription -> Artifact -> Action (Maybe Artifact)
+collectPlainDataFiles desc dir = do
+    let inDir = dir /> dataDir desc
+    if null (dataFiles desc)
+        then return Nothing
+        else Just <$> do
+            files <- concat <$> mapM (matchArtifactGlob dir) (dataFiles desc)
+            groupFiles inDir . map (\x -> (x,x)) $ files
