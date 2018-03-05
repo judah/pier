@@ -53,7 +53,7 @@ getTargetInfo ::
     -> Action TargetInfo
 getTargetInfo confd bi result deps ghc = do
     let packageSourceDir = confdSourceDir confd
-    let cflags = getCFlags deps packageSourceDir bi
+    cflags <- getCFlags deps packageSourceDir bi
     let allOptions = map ("-X" ++)
                     (display (fromMaybe Haskell98 $ defaultLanguage bi)
                         : map display (defaultExtensions bi ++ oldExtensions bi))

@@ -26,7 +26,8 @@ jobs:
           command: |
             $(stack exec which pier) build -j4 \
                 c2hs elm-core-sources hscolour hsndfile hsx2hs lens \
-                network-multicast pandoc pier unix-time wreq xhtml yaml
+                network-multicast pandoc pier unix-time wreq xhtml yaml \
+                X11-xft
       - run: $(stack exec which pier) build # also build pier's examples
       - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
       - run: $(stack exec which pier) run hlint src

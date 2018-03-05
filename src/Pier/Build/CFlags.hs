@@ -6,11 +6,14 @@ module Pier.Build.CFlags
     , ghcDefines
     ) where
 
+import Control.Applicative (liftA2)
 import Data.Semigroup
 import Data.Set (Set)
+import Development.Shake
 import Development.Shake.Classes
 import Distribution.PackageDescription
 import Distribution.Text (display)
+import Distribution.Types.PkgconfigDependency
 import Distribution.Version (versionNumbers)
 import GHC.Generics (Generic(..))
 
@@ -45,17 +48,27 @@ data CFlags = CFlags
     }
 
 -- TODO: include macros file too
-getCFlags :: TransitiveDeps -> Artifact -> BuildInfo -> CFlags
-getCFlags deps pkgDir bi =
-    CFlags
-            { ccFlags = ccOptions bi
+getCFlags :: TransitiveDeps -> Artifact -> BuildInfo -> Action CFlags
+getCFlags deps pkgDir bi = do
+    pkgConfFlags <- mconcat <$> mapM getPkgConfFlags (pkgconfigDepends bi)
+    return CFlags
+            { ccFlags = ccOptions bi ++ fst pkgConfFlags
             , cppFlags = cppOptions bi
             , cIncludeDirs =
                     Set.fromList (map (pkgDir />) $ includeDirs bi)
                     <> transitiveIncludeDirs deps
-            , linkFlags = ldOptions bi
+            , linkFlags = ldOptions bi ++ snd pkgConfFlags
             , linkLibs = extraLibs bi
             }
+
+-- TODO: handle version numbers too
+getPkgConfFlags :: PkgconfigDependency -> Action ([String], [String])
+getPkgConfFlags (PkgconfigDependency name _) = liftA2 (,)
+    (runPkgConfig [display name, "--cflags"])
+    (runPkgConfig [display name, "--libs"])
+  where
+    runPkgConfig = fmap words . runCommandStdout . prog "pkg-config"
+
 
 -- | Definitions that GHC provides by default
 ghcDefines :: InstalledGhc -> [String]
