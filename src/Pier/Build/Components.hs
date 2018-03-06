@@ -6,6 +6,7 @@ module Pier.Build.Components
     , askBuiltExecutables
     , askBuiltExecutable
     , BuiltExecutable(..)
+    , replLibrary
     )
     where
 
@@ -164,7 +165,8 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                     (liftA2 (,) (output hiDir) (output dynLibFile))
                     $ message (display pkg ++ ": building library")
                     <> ghcCommand ghc deps confd tinfo
-                            [ "-this-unit-id", display pkg
+                            [ "--make"
+                            , "-this-unit-id", display pkg
                             , "-hidir", hiDir
                             , "-hisuf", "dyn_hi"
                             , "-osuf", "dyn_o"
@@ -240,7 +242,8 @@ buildExecutableFromPkg confd exe = do
         $ message (display (package desc) ++ ": building executable "
                     ++ name)
         <> ghcCommand ghc deps confd tinfo
-                [ "-o", out
+                [ "--make"
+                , "-o", out
                 , "-hidir", "hi"
                 , "-odir", "o"
                 , "-dynamic"
@@ -252,6 +255,8 @@ buildExecutableFromPkg confd exe = do
                                 (confdDataFiles confd)
         }
 
+-- TODO: version of this which will always re-run.  Perhaps make this a feature of Command,
+-- replacing callArtifact.  Yes.
 ghcCommand
     :: InstalledGhc
     -> BuiltDeps
@@ -278,8 +283,7 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) confd tinfo args
     pkgFile = (confdSourceDir confd />)
     allArgs =
         -- Rely on GHC for module ordering and hs-boot files:
-        [ "--make"
-        , "-v0"
+        [ "-v0"
         , "-fPIC"
         , "-i"
         ]
@@ -396,3 +400,24 @@ targetDepNamesOrAllDeps desc bi
     | otherwise = maybe [] (const [packageName desc]) (library desc)
                     ++ allDependencies desc
 
+replLibrary :: PackageName -> Action ()
+replLibrary pkg =
+    getConfiguredPackage pkg >>= \case
+        Left p -> error $ "Repl on built-in package " ++ display p -- TODO
+        Right confd
+            | Just lib <- library (confdDesc confd)
+            , let bi = libBuildInfo lib
+            , buildable bi -> do
+                deps <- askBuiltDeps $ targetDepNames bi
+                replLibraryFromDesc deps confd lib
+            | otherwise -> error $ "replLibrary: no library " ++ display pkg
+
+replLibraryFromDesc :: BuiltDeps -> ConfiguredPackage -> Library -> Action ()
+replLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
+    ghc <- configGhc <$> askConfig
+    let lbi = libBuildInfo lib
+    tinfo <- getTargetInfo confd lbi (TargetLibrary $ exposedModules lib)
+                transDeps ghc
+    runCommand_ $ ghcCommand ghc deps confd tinfo
+                    ["--interactive"]
+                    -- TODO: load all modules

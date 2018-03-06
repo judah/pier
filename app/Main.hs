@@ -30,6 +30,7 @@ data CommandOpt
     = Clean
     | CleanAll
     | Build [(PackageName, Target)]
+    | Repl (PackageName, Target)  -- TODO: unsandboxed
     | Run Sandboxed (PackageName, Target) [String]
     | Which (PackageName, Target)
 
@@ -128,6 +129,7 @@ parseCommand = subparser $ mconcat
     [ make "clean" cleanCommand "Clean project"
     , make "clean-all" cleanAllCommand "Clean project & dependencies"
     , make "build" buildCommand "Build project"
+    , make "repl" replCommand "Run ghci on the given targets"
     , make "run" runCommand "Run executable"
     , make "which" whichCommand "Build executable and print its location"
     ]
@@ -145,6 +147,9 @@ cleanAllCommand = pure CleanAll
 
 buildCommand :: Parser CommandOpt
 buildCommand = Build <$> many parseTarget
+
+replCommand :: Parser CommandOpt
+replCommand = Repl <$> parseTarget
 
 runCommand :: Parser CommandOpt
 runCommand = Run <$> parseSandboxed <*> parseTarget
@@ -198,6 +203,9 @@ runWithOptions _ _ (Build targets) = do
                                         $ \n -> let n' = n+1 in (n', n')
                             putLoud $ "Built " ++ showTarget p t
                                     ++ " (" ++ show k ++ "/" ++ show numTargets ++ ")"
+runWithOptions _ _ (Repl (pkg, target)) = do
+    cleaning False
+    action $ replTarget pkg target
 runWithOptions next ht (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
@@ -285,3 +293,10 @@ buildTarget n TargetAll = void $ askMaybeBuiltLibrary n >> askBuiltExecutables n
 buildTarget n TargetLib = void $ askBuiltLibrary n
 buildTarget n TargetAllExes = void $ askBuiltExecutables n
 buildTarget n (TargetExe e) = void $ askBuiltExecutable n e
+
+-- TODO: repl executable
+replTarget :: PackageName -> Target -> Action ()
+replTarget n TargetAll = replLibrary n
+replTarget n TargetLib = replLibrary n
+replTarget _ TargetAllExes = error $ "replTarget: executables are not yet supported"
+replTarget _ (TargetExe _) = error $ "replTarget: executables are not yet supported"
