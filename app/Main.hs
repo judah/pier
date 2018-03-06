@@ -20,6 +20,7 @@ import qualified Data.HashMap.Strict as HM
 
 import Pier.Build.Components
 import Pier.Build.Config
+import Pier.Build.Executable
 import Pier.Build.Stackage
 import Pier.Core.Artifact hiding (runCommand)
 import Pier.Core.Download
@@ -203,17 +204,16 @@ runWithOptions _ _ (Build targets) = do
                                         $ \n -> let n' = n+1 in (n', n')
                             putLoud $ "Built " ++ showTarget p t
                                     ++ " (" ++ show k ++ "/" ++ show numTargets ++ ")"
-runWithOptions _ _ (Repl (pkg, target)) = do
+runWithOptions _ ht (Repl (pkg, target)) = do
     cleaning False
-    action $ replTarget pkg target
+    action $ replTarget ht pkg target
 runWithOptions next ht (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
         liftIO $ writeIORef next $
             case sandbox of
-                Sandbox -> callArtifact ht (builtExeDataFiles exe)
-                                (builtBinary exe) args
+                Sandbox -> callCommand ht (progExe exe args)
                 NoSandbox -> cmd_ (WithStderr False)
                                 (pathIn $ builtBinary exe) args
 runWithOptions _ _ (Which (pkg, target)) = do
@@ -295,8 +295,8 @@ buildTarget n TargetAllExes = void $ askBuiltExecutables n
 buildTarget n (TargetExe e) = void $ askBuiltExecutable n e
 
 -- TODO: repl executable
-replTarget :: PackageName -> Target -> Action ()
-replTarget n TargetAll = replLibrary n
-replTarget n TargetLib = replLibrary n
-replTarget _ TargetAllExes = error $ "replTarget: executables are not yet supported"
-replTarget _ (TargetExe _) = error $ "replTarget: executables are not yet supported"
+replTarget :: HandleTemps -> PackageName -> Target -> Action ()
+replTarget ht n TargetAll = replLibrary ht n
+replTarget ht n TargetLib = replLibrary ht n
+replTarget _ _ TargetAllExes = error $ "replTarget: executables are not yet supported"
+replTarget _ _ (TargetExe _) = error $ "replTarget: executables are not yet supported"

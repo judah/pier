@@ -36,6 +36,7 @@ import Pier.Build.Stackage
 import Pier.Build.TargetInfo
 import Pier.Core.Artifact
 import Pier.Core.Persistent
+import Pier.Core.Run (HandleTemps)
 
 
 buildPackageRules :: Rules ()
@@ -255,8 +256,6 @@ buildExecutableFromPkg confd exe = do
                                 (confdDataFiles confd)
         }
 
--- TODO: version of this which will always re-run.  Perhaps make this a feature of Command,
--- replacing callArtifact.  Yes.
 ghcCommand
     :: InstalledGhc
     -> BuiltDeps
@@ -400,8 +399,10 @@ targetDepNamesOrAllDeps desc bi
     | otherwise = maybe [] (const [packageName desc]) (library desc)
                     ++ allDependencies desc
 
-replLibrary :: PackageName -> Action ()
-replLibrary pkg =
+-- TODO: compile C libraries (probably just do that as a separate invocation of GHC?)
+-- TODO: actually ":m +" all the modules
+replLibrary :: HandleTemps -> PackageName -> Action ()
+replLibrary ht pkg =
     getConfiguredPackage pkg >>= \case
         Left p -> error $ "Repl on built-in package " ++ display p -- TODO
         Right confd
@@ -409,15 +410,15 @@ replLibrary pkg =
             , let bi = libBuildInfo lib
             , buildable bi -> do
                 deps <- askBuiltDeps $ targetDepNames bi
-                replLibraryFromDesc deps confd lib
+                replLibraryFromDesc ht deps confd lib
             | otherwise -> error $ "replLibrary: no library " ++ display pkg
 
-replLibraryFromDesc :: BuiltDeps -> ConfiguredPackage -> Library -> Action ()
-replLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
+replLibraryFromDesc :: HandleTemps -> BuiltDeps -> ConfiguredPackage -> Library -> Action ()
+replLibraryFromDesc ht deps@(BuiltDeps _ transDeps) confd lib = do
     ghc <- configGhc <$> askConfig
     let lbi = libBuildInfo lib
     tinfo <- getTargetInfo confd lbi (TargetLibrary $ exposedModules lib)
                 transDeps ghc
-    runCommand_ $ ghcCommand ghc deps confd tinfo
+    liftIO $ callCommand ht $ ghcCommand ghc deps confd tinfo
                     ["--interactive"]
                     -- TODO: load all modules

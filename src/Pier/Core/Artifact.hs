@@ -51,12 +51,12 @@ module Pier.Core.Artifact
     , doesArtifactExist
     , matchArtifactGlob
     , unfreezeArtifacts
-    , callArtifact
       -- * Creating artifacts
     , writeArtifact
     , runCommand
     , runCommand_
     , runCommandStdout
+    , callCommand
     , Command
     , message
       -- ** Command outputs
@@ -124,6 +124,12 @@ data Call
                         -- (This is a hack around shake which tries to resolve
                         -- local files in the env.)
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
+
+callPath :: FilePath -> Call -> FilePath
+callPath _ (CallEnv s) = s
+-- hack around shake weirdness w.r.t. relative binary paths
+callPath dir (CallArtifact f) = dir </> pathIn f
+callPath dir (CallTemp f) = dir </> f
 
 data Prog
     = ProgCall { _progCall :: Call
@@ -429,17 +435,12 @@ readProg _ (Message s) = do
     putNormal s
     return B.empty
 readProg dir (ProgCall p as cwd) = readProgCall dir p as cwd
-readProg dir (Shadow a0 f0) = do
-    liftIO $ linkShadow dir a0 f0
+readProg dir (Shadow a f) = do
+    liftIO $ linkShadow dir a f
     return B.empty
 
 readProgCall :: FilePath -> Call -> [String] -> FilePath -> Action BC.ByteString
 readProgCall dir p as cwd = do
-    -- hack around shake weirdness w.r.t. relative binary paths
-    let p' = case p of
-                CallEnv s -> s
-                CallArtifact f -> dir </> pathIn f
-                CallTemp f -> dir </> f
     (ret, Stdout out, Stderr err)
         <- quietly $ command
                     [ Cwd $ dir </> cwd
@@ -447,7 +448,7 @@ readProgCall dir p as cwd = do
                     -- stderr will get printed if there's an error.
                     , EchoStderr False
                     ]
-                    p' (map (spliceTempDir dir) as)
+                    (callPath dir p) (map (spliceTempDir dir) as)
     case ret of
         ExitSuccess -> return out
         ExitFailure ec -> do
@@ -665,13 +666,19 @@ matchArtifactGlob (Artifact External f) g
 matchArtifactGlob a g
     = liftIO $ matchDirFileGlob (pathIn a) g
 
--- TODO: merge more with above code?  How hermetic should it be?
-callArtifact :: HandleTemps -> Set Artifact -> Artifact -> [String] -> IO ()
-callArtifact ht inps bin args = withPierTempDirectory ht "exec" $ \tmp -> do
+-- | Run the given command without caching its result or capturing any outputs.
+callCommand :: HandleTemps -> Command -> IO ()
+callCommand ht (Command progs inps) = withPierTempDirectory ht "call" $ \tmp -> do
+    -- TODO: put output (but allow in "next" for running)
     dir <- getCurrentDirectory
-    collectInputs (Set.insert bin inps) tmp
-    cmd_ [Cwd tmp]
-        (dir </> tmp </> pathIn bin) args
+    let tmp' = dir </> tmp
+    collectInputs inps tmp'
+    forM_ progs $ \case
+        Message s -> putStrLn s -- TODO: putNormal?
+        Shadow a f -> linkShadow dir a f
+        ProgCall p as cwd -> cmd_ [Cwd $ tmp' </> cwd
+                                  ]
+                                  (callPath tmp' p) as
 
 createDirectoryA :: FilePath -> Command
 createDirectoryA f = prog "mkdir" ["-p", f]
