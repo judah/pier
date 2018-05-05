@@ -12,7 +12,9 @@ module Pier.Build.Components
 import Control.Applicative (liftA2)
 import Control.Monad (filterM)
 import Data.List (find)
-import Data.Semigroup
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup ((<>))
+#endif
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath hiding (exe)

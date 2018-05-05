@@ -1,4 +1,5 @@
 name: pier
+version: 0.1.0.0
 license: BSD3
 maintainer: judah.jacobson@gmail.com
 synopsis: Yet another Haskell build system.
@@ -10,13 +11,14 @@ github: judah/pier
 
 dependencies:
   - base
-  - Cabal
   - directory
+  - Cabal
   - shake
   - unordered-containers
 
 default-extensions:
   - BangPatterns
+  - CPP
   - DeriveGeneric
   - FlexibleContexts
   - LambdaCase
@@ -46,8 +48,11 @@ library:
     - temporary
     - text
     - transformers
-    - unix
     - yaml
+  when:
+    - condition: "!os(windows)"
+      dependencies:
+        - unix
 
 # Work around haskell/cabal#4739
 when:

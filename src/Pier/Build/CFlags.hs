@@ -8,7 +8,9 @@ module Pier.Build.CFlags
 
 import Control.Applicative (liftA2)
 import Control.Monad (guard)
-import Data.Semigroup
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup (Semigroup(..))
+#endif
 import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes
@@ -31,7 +33,8 @@ data TransitiveDeps = TransitiveDeps
     , transitiveDataFiles :: Set Artifact
     } deriving (Show, Eq, Typeable, Generic, Hashable, Binary, NFData)
 
-instance Semigroup TransitiveDeps
+instance Semigroup TransitiveDeps where
+    (<>) = mappend
 
 instance Monoid TransitiveDeps where
     mempty = TransitiveDeps Set.empty Set.empty Set.empty Set.empty

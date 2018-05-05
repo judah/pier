@@ -6,7 +6,9 @@ module Pier.Build.Executable
     , progExe
     ) where
 
-import Data.Semigroup
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup ((<>))
+#endif
 import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes

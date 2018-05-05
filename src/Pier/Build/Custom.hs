@@ -9,7 +9,9 @@ module Pier.Build.Custom
     ) where
 
 import Data.Char (isDigit)
-import Data.Monoid
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup ((<>))
+#endif
 import Development.Shake
 import Development.Shake.FilePath
 import Distribution.PackageDescription

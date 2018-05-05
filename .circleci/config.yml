@@ -1,41 +1,78 @@
 version: 2
+
+references:
+    build-base: &build-base
+      docker:
+        - image: judah/pier-ci:v1
+      steps:
+        - checkout
+        - run: echo "${STACK}" > stack-env
+        - restore_cache:
+            keys:
+              - stack-cache-v4-{{ checksum "stack-env" }}-{{ arch }}-{{ .Branch }}
+              - stack-cache-v4-{{ checksum "stack-env" }}-{{ arch }}-master
+        - run:
+            command: |
+              echo 'export PATH=$HOME/.local/bin:$PATH' >> $BASH_ENV
+
+        # Build with `stack`
+        - run: ${STACK} --no-terminal install weeder hlint
+        - run: ${STACK} --no-terminal build --only-dependencies --fast --no-terminal
+        - run: ${STACK} --no-terminal build --pedantic --fast --no-terminal
+
+        - run: hlint .
+        - run: weeder . --build
+
+        - save_cache:
+              key: stack-cache-v4-{{ checksum "stack-env" }}-{{ arch }}-{{ .Branch }}-{{ epoch }}
+              paths:
+                  - ~/.stack
+                  - .stack-work
+
+        # Run pier on some sample packages
+        - run:
+            command: |
+              $(${STACK} exec which pier) build -j4 \
+                  c2hs elm-core-sources hscolour hsndfile hsx2hs lens \
+                  network-multicast pandoc pier unix-time wreq xhtml yaml \
+                  X11-xft
+        - run: $(${STACK} exec which pier) build # also build pier's examples
+        - run: $(${STACK} exec which pier) run -j4 hlint --sandbox $PWD/src
+        - run: $(${STACK} exec which pier) run hlint src
+        - run:
+            command: |
+                cat > example/pier-example.yaml <<EOF
+                system-ghc: true
+                resolver: ${EXAMPLE_RESOLVER}
+                packages:
+                - '.'
+                EOF
+        - run: ${STACK} exec pier -- build --pier-yaml=example/pier-example.yaml text unix-compat
+
 jobs:
   build:
+    <<: *build-base
+    environment:
+      - STACK: "stack"
+      - EXAMPLE_RESOLVER: "lts-10.3"
+  build-nightly:
+    <<: *build-base
+    environment:
+      - STACK: "stack --resolver=nightly-2018-05-05"
+      - EXAMPLE_RESOLVER: "nightly-2018-05-05"
+  build-success:
     docker:
       - image: judah/pier-ci:v1
     steps:
-      - checkout
-      - restore_cache:
-          keys:
-            - stack-cache-v3-{{ arch }}-{{ .Branch }}
-            - stack-cache-v3-{{ arch }}-master
-      - run:
-          command: |
-            echo 'export PATH=$HOME/.local/bin:$PATH' >> $BASH_ENV
+      - run: echo success
 
-      # Build with `stack`
-      - run: stack --no-terminal install weeder hlint
-      - run: stack --no-terminal build --only-dependencies --fast --no-terminal
-      - run: stack --no-terminal build --pedantic --fast --no-terminal
-
-      - run: hlint .
-      - run: weeder . --build
-
-      # Run pier on some sample packages
-      - run:
-          command: |
-            $(stack exec which pier) build -j4 \
-                c2hs elm-core-sources hscolour hsndfile hsx2hs lens \
-                network-multicast pandoc pier unix-time wreq xhtml yaml \
-                X11-xft
-      - run: $(stack exec which pier) build # also build pier's examples
-      - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
-      - run: $(stack exec which pier) run hlint src
-      - run: 'echo "system-ghc: true" >> example/pier.yaml'
-      - run: stack exec pier -- build --pier-yaml=example/pier.yaml text unix-compat
-
-      - save_cache:
-            key: stack-cache-v3-{{ arch }}-{{ .Branch }}-{{ epoch }}
-            paths:
-                - ~/.stack
-                - .stack-work
+workflows:
+  version: 2
+  build-and-test:
+      jobs:
+        - build
+        - build-nightly
+        - build-success:
+            requires:
+              - build
+              - build-nightly

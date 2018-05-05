@@ -10,7 +10,9 @@ import Control.Monad (guard, msum)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
 import Data.List (intercalate)
-import Data.Semigroup
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup ((<>))
+#endif
 import Development.Shake
 import Distribution.ModuleName
 import Distribution.Package (PackageIdentifier(..), mkPackageName)

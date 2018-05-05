@@ -81,7 +81,9 @@ import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class
 import Crypto.Hash.SHA256
 import Data.ByteString.Base64
-import Data.Semigroup
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup (Semigroup(..))
+#endif
 import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes hiding (hash)
@@ -90,7 +92,9 @@ import Distribution.Simple.Utils (matchDirFileGlob)
 import GHC.Generics
 import System.Directory as Directory
 import System.Exit (ExitCode(..))
+#if !MIN_VERSION_directory(1,3,1)
 import System.Posix.Files (createSymbolicLink)
+#endif
 import System.Process.Internals (translate)
 
 import qualified Data.Binary as Binary
@@ -138,7 +142,8 @@ instance Monoid Command where
     Command ps is `mappend` Command ps' is' = Command (ps ++ ps') (is <> is')
     mempty = Command [] Set.empty
 
-instance Semigroup Command
+instance Semigroup Command where
+    (<>) = mappend
 
 -- | Run an external command-line program with the given arguments.
 prog :: String -> [String] -> Command
@@ -288,7 +293,13 @@ createExternalLink = do
     exists <- doesPathExist externalArtifactDir
     unless exists $ do
         createParentIfMissing externalArtifactDir
-        createSymbolicLink "../.." externalArtifactDir
+        createDirectoryLink "../.." externalArtifactDir
+
+#if !MIN_VERSION_directory(1,3,1)
+createFileLink, createDirectoryLink :: FilePath -> FilePath -> IO ()
+createFileLink = createSymbolicLink
+createDirectoryLink = createSymbolicLink
+#endif
 
 -- | The build rule type for commands.
 data CommandQ = CommandQ
@@ -485,7 +496,7 @@ linkShadow dir a0 f0 = do
                         | not srcExists -> error $ "linkShadow: missing source " ++ show a
                         | destExists -> error $ "linkShadow: destination already exists: "
                                                     ++ show f
-                        | otherwise -> createSymbolicLink a f
+                        | otherwise -> createFileLink a f
 
 showProg :: Prog -> String
 showProg (Shadow a f) = unwords ["Shadow:", pathIn a, "=>", f]
@@ -587,16 +598,15 @@ linkArtifact dir a = do
     curDir <- getCurrentDirectory
     let realPath = curDir </> realPathIn a
     let localPath = dir </> pathIn a
-    checkExists realPath
     createParentIfMissing localPath
-    createSymbolicLink realPath localPath
-  where
-    -- Sanity check
-    checkExists f = do
-        isFile <- Directory.doesFileExist f
-        isDir <- Directory.doesDirectoryExist f
-        when (not isFile && not isDir)
-            $ error $ "linkArtifact: source does not exist: " ++ show f
+    isFile <- Directory.doesFileExist realPath
+    if isFile
+        then createFileLink realPath localPath
+        else do
+            isDir <- Directory.doesDirectoryExist realPath
+            if isDir
+                then createDirectoryLink realPath localPath
+                else error $ "linkArtifact: source does not exist: " ++ show realPath
                         ++ " for artifact " ++ show a
 
 

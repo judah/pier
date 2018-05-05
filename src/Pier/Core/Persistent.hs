@@ -6,6 +6,7 @@ module Pier.Core.Persistent
     , cleaning
     ) where
 
+
 import Data.Binary (encode, decodeOrFail)
 import Development.Shake
 import Development.Shake.Classes
@@ -56,6 +57,10 @@ addPersistent act = addBuiltinRule noLint $ \(Persistent q) old depsChanged
                             | LBS.null bs -> Just x
                         _ -> Nothing
 
+
+-- Idea: use gitrev, or something similar.
+-- Save the current git hash, plus the output of "git diff HEAD",
+-- to decide whether persistents need to be recomputed.
 
 askPersistent
     :: (RuleResult q ~ a, ShakeValue q, ShakeValue a)
