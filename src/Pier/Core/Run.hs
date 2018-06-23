@@ -34,10 +34,10 @@ runPier = shakeArgs shakeOptions
                             , shakeThreads = 0
                             }
 
-cleanAll :: Rules ()
-cleanAll = action $ do
-            putNormal $ "Removing " ++ pierDir
-            removeFilesAfter pierDir ["//"]
+cleanAll :: Action ()
+cleanAll = do
+    putNormal $ "Removing " ++ pierDir
+    removeFilesAfter pierDir ["//"]
 
 data HandleTemps = RemoveTemps | KeepTemps
 

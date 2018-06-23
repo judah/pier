@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Main (main) where
 
 import Control.Exception (bracket)
@@ -27,8 +28,7 @@ import Pier.Core.Persistent
 import Pier.Core.Run
 
 data CommandOpt
-    = Clean
-    | CleanAll
+    = CleanAll
     | Build [(PackageName, Target)]
     | Run Sandboxed (PackageName, Target) [String]
     | Which (PackageName, Target)
@@ -125,8 +125,7 @@ parser = fmap (\(x,(y,z)) -> (x <> y, z))
 
 parseCommand :: Parser (CommonOptions, CommandOpt)
 parseCommand = subparser $ mconcat
-    [ make "clean" cleanCommand "Clean project"
-    , make "clean-all" cleanAllCommand "Clean project & dependencies"
+    [ make "clean-all" cleanAllCommand "Clean project & dependencies"
     , make "build" buildCommand "Build project"
     , make "run" runCommand "Run executable"
     , make "which" whichCommand "Build executable and print its location"
@@ -136,9 +135,6 @@ parseCommand = subparser $ mconcat
         command name $ info (liftA2 (,) (parseCommonOptions Hidden)
                                         (helper <*> act))
                      $ progDesc desc
-
-cleanCommand :: Parser CommandOpt
-cleanCommand = pure Clean
 
 cleanAllCommand :: Parser CommandOpt
 cleanAllCommand = pure CleanAll
@@ -174,46 +170,38 @@ runWithOptions
     :: IORef (IO ()) -- ^ Sink for what to do after the build
     -> HandleTemps
     -> CommandOpt
-    -> Rules ()
-runWithOptions _ _ Clean = cleaning True
+    -> Action ()
 runWithOptions _ _ CleanAll = do
     liftIO unfreezeArtifacts
-    cleaning True
     cleanAll
 runWithOptions _ _ (Build targets) = do
-    cleaning False
-    action $ do
-        -- Build everything if the targets list is empty
-        targets' <- if null targets
-                        then map (,TargetAll) . HM.keys . localPackages
-                                <$> askConfig
-                        else pure targets
-        -- Keep track of the number of targets.
-        -- TODO: count transitive deps as well.
-        let numTargets = length targets'
-        successCount <- liftIO $ newIORef (0::Int)
-        forP targets' $ \(p,t) -> do
-                            buildTarget p t
-                            k <- liftIO $ atomicModifyIORef' successCount
-                                        $ \n -> let n' = n+1 in (n', n')
-                            putLoud $ "Built " ++ showTarget p t
-                                    ++ " (" ++ show k ++ "/" ++ show numTargets ++ ")"
+    -- Build everything if the targets list is empty
+    targets' <- if null targets
+                    then map (,TargetAll) . HM.keys . localPackages
+                            <$> askConfig
+                    else pure targets
+    -- Keep track of the number of targets.
+    -- TODO: count transitive deps as well.
+    let numTargets = length targets'
+    successCount <- liftIO $ newIORef (0::Int)
+    void $ forP targets' $ \(p,t) -> do
+                    buildTarget p t
+                    k <- liftIO $ atomicModifyIORef' successCount
+                                $ \n -> let n' = n+1 in (n', n')
+                    putLoud $ "Built " ++ showTarget p t
+                            ++ " (" ++ show k ++ "/" ++ show numTargets ++ ")"
 runWithOptions next ht (Run sandbox (pkg, target) args) = do
-    cleaning False
-    action $ do
-        exe <- buildExeTarget pkg target
-        liftIO $ writeIORef next $
-            case sandbox of
-                Sandbox -> callArtifact ht (builtExeDataFiles exe)
-                                (builtBinary exe) args
-                NoSandbox -> cmd_ (WithStderr False)
-                                (pathIn $ builtBinary exe) args
+    exe <- buildExeTarget pkg target
+    liftIO $ writeIORef next $
+        case sandbox of
+            Sandbox -> callArtifact ht (builtExeDataFiles exe)
+                            (builtBinary exe) args
+            NoSandbox -> cmd_ (WithStderr False)
+                            (pathIn $ builtBinary exe) args
 runWithOptions _ _ (Which (pkg, target)) = do
-    cleaning False
-    action $ do
-        exe <- buildExeTarget pkg target
-        -- TODO: nicer output format.
-        putNormal $ pathIn (builtBinary exe)
+    exe <- buildExeTarget pkg target
+    -- TODO: nicer output format.
+    putNormal $ pathIn (builtBinary exe)
 
 buildExeTarget :: PackageName -> Target -> Action BuiltExecutable
 buildExeTarget pkg target = do
@@ -248,7 +236,8 @@ main = do
             downloadRules $ downloadLocation commonOpts
             installGhcRules
             configRules pierYamlFile
-            runWithOptions next ht cmdOpt
+            watchingGit $(gitRev)
+            action $ runWithOptions next ht cmdOpt
         join $ readIORef next
 
 -- TODO: move into Build.hs

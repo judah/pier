@@ -40,11 +40,13 @@ library:
     - bytestring
     - containers
     - cryptohash-sha256
+    - gitrev
     - hashable
     - http-client
     - http-client-tls
     - http-types
     - process
+    - template-haskell
     - temporary
     - text
     - transformers

@@ -157,9 +157,6 @@ By default, the command will run in the same directory where `pier.yaml` is loca
 
 In case of ambiguity, `--` can be used to separate arguments of `pier` from arguments of the target.
 
-### `pier clean`
-`pier clean` marks some metadata in the Shake database as "dirty", so that it will be recreated on the next build.  This command may be required if you build a new version of `pier`, but should be unnecessary otherwise.
-
 ### `pier clean-all`
 `pier clean-all` completely deletes all build outputs (other than downloaded
 files, as described [here](#build-outputs)), so that future builds will start
