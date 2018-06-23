@@ -562,9 +562,9 @@ freezePath f =
 
 -- | Make all artifacts user-writable, so they can be deleted by `clean-all`.
 unfreezeArtifacts :: IO ()
-unfreezeArtifacts = do
-    exists <- Directory.doesDirectoryExist artifactDir
-    when exists $ forFileRecursive_ unfreeze artifactDir
+unfreezeArtifacts = forM_ [artifactDir, pierTempDirectory] $ \dir -> do
+    exists <- Directory.doesDirectoryExist dir
+    when exists $ forFileRecursive_ unfreeze dir
   where
     unfreeze f = do
         sym <- pathIsSymbolicLink f

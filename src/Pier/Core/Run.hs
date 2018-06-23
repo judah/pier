@@ -7,6 +7,7 @@ module Pier.Core.Run
     , HandleTemps(..)
     , withPierTempDirectory
     , withPierTempDirectoryAction
+    , pierTempDirectory
     , createPierTempDirectory
     , createPierTempFile
     ) where
