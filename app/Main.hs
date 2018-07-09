@@ -213,6 +213,22 @@ runWithOptions next ht (Run sandbox (pkg, target) args) = do
                                 (builtBinary exe) args
                 NoSandbox -> cmd_ (WithStderr False)
                                 (pathIn $ builtBinary exe) args
+runWithOptions next ht (Test sandbox (pkg, TargetAllTestSuites)) = do
+    cleaning False
+
+    action $ do
+        suites <- askBuiltTestSuites pkg
+
+        sequence_
+            $ (\suite -> do
+                let noArgs :: [String] = []
+                liftIO $ writeIORef next $
+                    case sandbox of
+                        Sandbox -> callArtifact ht (builtTestSuiteDataFiles suite)
+                                        (builtTestSuiteBinary suite) noArgs
+                        NoSandbox -> cmd_ (WithStderr False)
+                                        (pathIn $ builtTestSuiteBinary suite) noArgs)
+            <$> suites
 runWithOptions next ht (Test sandbox (pkg, target)) = do
     cleaning False
     action $ do
@@ -249,7 +265,7 @@ buildTestSuiteTarget pkg target = do
                 TargetAll -> return $ display pkg
                 TargetAllExes -> error "command can't be used with any \"exe\" targets"
                 TargetLib -> error "command can't be used with a \"lib\" target"
-                TargetAllTestSuites -> return $ display pkg
+                TargetAllTestSuites -> return ""
                 TargetTestSuite name -> return name
     askBuiltTestSuite pkg name
 
