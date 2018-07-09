@@ -3,6 +3,7 @@ module Main (main) where
 
 import Control.Exception (bracket)
 import Control.Monad (join, void)
+import Control.Monad.IO.Class
 import Data.IORef
 import Data.List.Split (splitOn)
 import Data.Maybe (fromMaybe)
@@ -207,45 +208,42 @@ runWithOptions next ht (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
-        liftIO $ writeIORef next $
-            case sandbox of
-                Sandbox -> callArtifact ht (builtExeDataFiles exe)
-                                (builtBinary exe) args
-                NoSandbox -> cmd_ (WithStderr False)
-                                (pathIn $ builtBinary exe) args
+        liftIO $ writeIORef next $ runExe ht sandbox exe args
 runWithOptions next ht (Test sandbox (pkg, TargetAllTestSuites)) = do
     cleaning False
-
     action $ do
         suites <- askBuiltTestSuites pkg
-
         sequence_
-            $ (\suite -> do
-                let noArgs :: [String] = []
-                liftIO $ writeIORef next $
-                    case sandbox of
-                        Sandbox -> callArtifact ht (builtTestSuiteDataFiles suite)
-                                        (builtTestSuiteBinary suite) noArgs
-                        NoSandbox -> cmd_ (WithStderr False)
-                                        (pathIn $ builtTestSuiteBinary suite) noArgs)
+            $ (\suite -> liftIO $ writeIORef next $ runTestSuite ht sandbox suite)
             <$> suites
 runWithOptions next ht (Test sandbox (pkg, target)) = do
     cleaning False
     action $ do
         suite <- buildTestSuiteTarget pkg target
-        let noArgs :: [String] = []
-        liftIO $ writeIORef next $
-            case sandbox of
-                Sandbox -> callArtifact ht (builtTestSuiteDataFiles suite)
-                                (builtTestSuiteBinary suite) noArgs
-                NoSandbox -> cmd_ (WithStderr False)
-                                (pathIn $ builtTestSuiteBinary suite) noArgs
+        liftIO $ writeIORef next $ runTestSuite ht sandbox suite
 runWithOptions _ _ (Which (pkg, target)) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
         -- TODO: nicer output format.
         putNormal $ pathIn (builtBinary exe)
+
+runExe :: HandleTemps -> Sandboxed -> BuiltExecutable -> [String] -> IO ()
+runExe ht sandbox exe args =
+    case sandbox of
+        Sandbox -> callArtifact ht (builtExeDataFiles exe)
+                        (builtBinary exe) args
+        NoSandbox -> cmd_ (WithStderr False)
+                        (pathIn $ builtBinary exe) args
+
+runTestSuite :: HandleTemps -> Sandboxed -> BuiltTestSuite -> IO ()
+runTestSuite ht sandbox suite = do
+    let noArgs :: [String] = []
+    case sandbox of
+        Sandbox -> callArtifact ht (builtTestSuiteDataFiles suite)
+                        (builtTestSuiteBinary suite) noArgs
+        NoSandbox -> cmd_ (WithStderr False)
+                        (pathIn $ builtTestSuiteBinary suite) noArgs
 
 buildExeTarget :: PackageName -> Target -> Action BuiltExecutable
 buildExeTarget pkg target = do
