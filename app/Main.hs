@@ -31,6 +31,7 @@ data CommandOpt
     | CleanAll
     | Build [(PackageName, Target)]
     | Run Sandboxed (PackageName, Target) [String]
+    | Test Sandboxed (PackageName, Target)
     | Which (PackageName, Target)
 
 data Sandboxed = Sandbox | NoSandbox
@@ -129,6 +130,7 @@ parseCommand = subparser $ mconcat
     , make "clean-all" cleanAllCommand "Clean project & dependencies"
     , make "build" buildCommand "Build project"
     , make "run" runCommand "Run executable"
+    , make "test" testCommand "Run test suite"
     , make "which" whichCommand "Build executable and print its location"
     ]
   where
@@ -149,6 +151,9 @@ buildCommand = Build <$> many parseTarget
 runCommand :: Parser CommandOpt
 runCommand = Run <$> parseSandboxed <*> parseTarget
                  <*> many (strArgument (metavar "ARGUMENT"))
+
+testCommand :: Parser CommandOpt
+testCommand = Test <$> parseSandboxed <*> parseTarget
 
 whichCommand :: Parser CommandOpt
 whichCommand = Which <$> parseTarget
@@ -208,6 +213,17 @@ runWithOptions next ht (Run sandbox (pkg, target) args) = do
                                 (builtBinary exe) args
                 NoSandbox -> cmd_ (WithStderr False)
                                 (pathIn $ builtBinary exe) args
+runWithOptions next ht (Test sandbox (pkg, target)) = do
+    cleaning False
+    action $ do
+        suite <- buildTestSuiteTarget pkg target
+        let noArgs :: [String] = []
+        liftIO $ writeIORef next $
+            case sandbox of
+                Sandbox -> callArtifact ht (builtTestSuiteDataFiles suite)
+                                (builtTestSuiteBinary suite) noArgs
+                NoSandbox -> cmd_ (WithStderr False)
+                                (pathIn $ builtTestSuiteBinary suite) noArgs
 runWithOptions _ _ (Which (pkg, target)) = do
     cleaning False
     action $ do
@@ -222,9 +238,20 @@ buildExeTarget pkg target = do
                 TargetAll -> return $ display pkg
                 TargetAllExes -> return $ display pkg
                 TargetLib -> error "command can't be used with a \"lib\" target"
-                TargetAllTestSuites -> error "command can't be used with any \"test-suite\" target"
+                TargetAllTestSuites -> error "command can't be used with any \"test-suite\" targets"
                 TargetTestSuite _ -> error "command can't be used with a \"test-suite\" target"
     askBuiltExecutable pkg name
+
+buildTestSuiteTarget :: PackageName -> Target -> Action BuiltTestSuite
+buildTestSuiteTarget pkg target = do
+    name <- case target of
+                TargetExe _ -> error "command can't be used with an \"exe\" target"
+                TargetAll -> return $ display pkg
+                TargetAllExes -> error "command can't be used with any \"exe\" targets"
+                TargetLib -> error "command can't be used with a \"lib\" target"
+                TargetAllTestSuites -> return $ display pkg
+                TargetTestSuite name -> return name
+    askBuiltTestSuite pkg name
 
 main :: IO ()
 main = do
