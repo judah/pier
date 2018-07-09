@@ -5,7 +5,10 @@ module Pier.Build.Components
     , askMaybeBuiltLibrary
     , askBuiltExecutables
     , askBuiltExecutable
+    , askBuiltTestSuite
+    , askBuiltTestSuites
     , BuiltExecutable(..)
+    , BuiltTestSuite(..)
     )
     where
 
@@ -32,6 +35,7 @@ import qualified Distribution.InstalledPackageInfo as IP
 import Pier.Build.Config
 import Pier.Build.ConfiguredPackage
 import Pier.Build.Executable
+import Pier.Build.TestSuite
 import Pier.Build.CFlags
 import Pier.Build.Stackage
 import Pier.Build.TargetInfo
@@ -45,6 +49,8 @@ buildPackageRules = do
     addPersistent getBuiltinLib
     addPersistent buildExecutables
     addPersistent buildExecutable
+    addPersistent buildTestSuites
+    addPersistent buildTestSuite
 
 newtype BuiltLibraryQ = BuiltLibraryQ PackageName
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
@@ -253,6 +259,72 @@ buildExecutableFromPkg confd exe = do
         , builtExeDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
                                 (confdDataFiles confd)
         }
+
+newtype BuiltTestSuitesQ = BuiltTestSuitesQ PackageName
+    deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
+type instance RuleResult BuiltTestSuitesQ = Map.Map String BuiltTestSuite
+instance Show BuiltTestSuitesQ where
+    show (BuiltTestSuitesQ p) = "TestSuites from " ++ display p
+
+askBuiltTestSuites :: PackageName -> Action (Map.Map String BuiltTestSuite)
+askBuiltTestSuites = askPersistent . BuiltTestSuitesQ
+
+buildTestSuites :: BuiltTestSuitesQ -> Action (Map.Map String BuiltTestSuite)
+buildTestSuites (BuiltTestSuitesQ p) = getConfiguredPackage p >>= \case
+    Left _ -> return Map.empty
+    Right confd ->
+        fmap Map.fromList
+            . mapM (\e -> (display $ testName e,)
+                                <$> buildTestSuiteFromPkg confd e)
+            . filter (buildable . testBuildInfo)
+            $ testSuites (confdDesc confd)
+
+-- TODO: error if not buildable?
+buildTestSuite :: BuiltTestSuiteQ -> Action BuiltTestSuite
+buildTestSuite (BuiltTestSuiteQ p s) = getConfiguredPackage p >>= \case
+    Left pid -> error $ "Built-in package " ++ display pid
+                        ++ " has no test suites"
+    Right confd
+        | Just suite <-
+            find ((== s) . display . testName) (testSuites $ confdDesc confd)
+            -> buildTestSuiteFromPkg confd suite
+        | otherwise -> error $ "Package " ++ display (packageId confd)
+                            ++ " has no test suite named " ++ s
+
+buildTestSuiteFromPkg
+    :: ConfiguredPackage
+    -> TestSuite
+    -> Action BuiltTestSuite
+buildTestSuiteFromPkg confd suite = do
+    let name = display $ testName suite
+    let desc = confdDesc confd
+    deps@(BuiltDeps _ transDeps)
+        <- askBuiltDeps $ targetDepNamesOrAllDeps desc (testBuildInfo suite)
+    ghc <- configGhc <$> askConfig
+    let out = "test-suite" </> name
+    tinfo <- getTargetInfo confd (testBuildInfo suite) (TargetBinary $ modulePath' suite)
+                transDeps ghc
+    bin <- runCommand (output out)
+        $ message (display (package desc) ++ ": building test-suite"
+                    ++ name)
+        <> ghcCommand ghc deps confd tinfo
+                [ "-o", out
+                , "-hidir", "hi"
+                , "-odir", "o"
+                , "-dynamic"
+                , "-threaded"
+                ]
+    return BuiltTestSuite
+        { builtTestSuiteBinary = bin
+        , builtTestSuiteDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
+                                (confdDataFiles confd)
+        }
+    where
+        modulePath' x =
+            case testInterface x of
+                TestSuiteExeV10 _ path -> path
+                TestSuiteLibV09 _ _ -> error "Test suites of type detailed-0.9 are not supported"
+                TestSuiteUnsupported _ -> error "An unsupported test suite type."
 
 ghcCommand
     :: InstalledGhc

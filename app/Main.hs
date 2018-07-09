@@ -222,6 +222,8 @@ buildExeTarget pkg target = do
                 TargetAll -> return $ display pkg
                 TargetAllExes -> return $ display pkg
                 TargetLib -> error "command can't be used with a \"lib\" target"
+                TargetAllTestSuites -> error "command can't be used with any \"test-suite\" target"
+                TargetTestSuite _ -> error "command can't be used with a \"test-suite\" target"
     askBuiltExecutable pkg name
 
 main :: IO ()
@@ -257,6 +259,8 @@ data Target
     | TargetLib
     | TargetAllExes
     | TargetExe String
+    | TargetAllTestSuites
+    | TargetTestSuite String
     deriving Show
 
 showTarget :: PackageName -> Target -> String
@@ -265,6 +269,8 @@ showTarget pkg t = display pkg ++ case t of
                 TargetLib -> ":lib"
                 TargetAllExes -> ":exe"
                 TargetExe e -> ":exe:" ++ e
+                TargetAllTestSuites -> ":test-suite"
+                TargetTestSuite s -> ":test-suite:" ++ s
 
 parseTarget :: Parser (PackageName, Target)
 parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
@@ -275,6 +281,8 @@ parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
         [n, "lib"] -> (, TargetLib) <$> readPackageName n
         [n, "exe"] -> (, TargetAllExes) <$> readPackageName n
         [n, "exe", e] -> (, TargetExe e) <$> readPackageName n
+        [n, "test-suite"] -> (, TargetAllTestSuites) <$> readPackageName n
+        [n, "test-suite", e] -> (, TargetTestSuite e) <$> readPackageName n
         _ -> Left $ "Error parsing target " ++ show s
     readPackageName n = case simpleParse n of
         Just p -> return p
@@ -285,3 +293,5 @@ buildTarget n TargetAll = void $ askMaybeBuiltLibrary n >> askBuiltExecutables n
 buildTarget n TargetLib = void $ askBuiltLibrary n
 buildTarget n TargetAllExes = void $ askBuiltExecutables n
 buildTarget n (TargetExe e) = void $ askBuiltExecutable n e
+buildTarget n TargetAllTestSuites = void $ askBuiltTestSuites n
+buildTarget n (TargetTestSuite s) = void $ askBuiltTestSuite n s
