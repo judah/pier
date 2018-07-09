@@ -3,7 +3,6 @@ module Main (main) where
 
 import Control.Exception (bracket)
 import Control.Monad (join, void)
-import Control.Monad.IO.Class
 import Data.IORef
 import Data.List.Split (splitOn)
 import Data.Maybe (fromMaybe)
