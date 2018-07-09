@@ -131,7 +131,7 @@ parseCommand = subparser $ mconcat
     , make "clean-all" cleanAllCommand "Clean project & dependencies"
     , make "build" buildCommand "Build project"
     , make "run" runCommand "Run executable"
-    , make "test" testCommand "Run test suite"
+    , make "test" testCommand "Run test suites"
     , make "which" whichCommand "Build executable and print its location"
     ]
   where
