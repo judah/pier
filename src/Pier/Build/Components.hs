@@ -264,7 +264,7 @@ newtype BuiltTestSuitesQ = BuiltTestSuitesQ PackageName
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
 type instance RuleResult BuiltTestSuitesQ = Map.Map String BuiltTestSuite
 instance Show BuiltTestSuitesQ where
-    show (BuiltTestSuitesQ p) = "TestSuites from " ++ display p
+    show (BuiltTestSuitesQ p) = "Test suites from " ++ display p
 
 askBuiltTestSuites :: PackageName -> Action (Map.Map String BuiltTestSuite)
 askBuiltTestSuites = askPersistent . BuiltTestSuitesQ
@@ -305,7 +305,7 @@ buildTestSuiteFromPkg confd suite = do
     tinfo <- getTargetInfo confd (testBuildInfo suite) (TargetBinary $ modulePath' suite)
                 transDeps ghc
     bin <- runCommand (output out)
-        $ message (display (package desc) ++ ": building test-suite"
+        $ message (display (package desc) ++ ": building test-suite "
                     ++ name)
         <> ghcCommand ghc deps confd tinfo
                 [ "-o", out
