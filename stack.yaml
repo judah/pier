@@ -1,5 +1,8 @@
 resolver: lts-10.7
 
+nix:
+  packages: [zlib]
+
 packages:
   - '.'
 
