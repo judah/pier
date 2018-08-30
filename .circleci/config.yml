@@ -33,7 +33,7 @@ references:
         - run:
             command: |
               $(${STACK} exec which pier) build -j4 \
-                  c2hs elm-core-sources hscolour hsndfile hsx2hs lens \
+                  c2hs direct-sqlite elm-core-sources hscolour hsndfile hsx2hs lens \
                   network-multicast pandoc pier unix-time wreq xhtml yaml \
                   X11-xft
         - run: $(${STACK} exec which pier) build # also build pier's examples

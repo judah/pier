@@ -8,5 +8,14 @@ import System.Directory
 
 -- | Create recursively the parent of the given path, if it doesn't exist.
 createParentIfMissing :: MonadIO m => FilePath -> m ()
-createParentIfMissing path
-    = liftIO $ createDirectoryIfMissing True (takeDirectory path)
+createParentIfMissing
+    = liftIO . createDirectoryIfMissing True . parentDirectory
+
+-- | Get the parent of the given directory or file.
+--
+-- Examples:
+--
+-- parentDirectory "foo/bar"  == "foo"
+-- parentDirectory "foo/bar/" == "foo"
+parentDirectory :: FilePath -> FilePath
+parentDirectory = takeDirectory . dropTrailingPathSeparator
