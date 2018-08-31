@@ -3,7 +3,7 @@ version: 2
 references:
     build-base: &build-base
       docker:
-        - image: judah/pier-ci:v1
+        - image: judah/pier-ci:v2
       steps:
         - checkout
         - run: echo "${STACK}" > stack-env
