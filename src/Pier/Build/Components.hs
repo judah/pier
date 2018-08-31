@@ -12,6 +12,7 @@ module Pier.Build.Components
 import Control.Applicative (liftA2)
 import Control.Monad (filterM)
 import Data.List (find)
+import Data.Maybe (fromMaybe)
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath hiding (exe)
@@ -382,10 +383,9 @@ renderReexport deps re = display (moduleReexportName re) ++ " from "
                     ++ display (moduleReexportOriginalName re)
   where
     originalPkg p =
-        case Map.lookup p deps of
-            Nothing -> error $ "Unknown package name " ++ display p
-                        ++ " for module reexport " ++ display re
-            Just pkg -> pkg
+        fromMaybe (error $ "Unknown package name " ++ display p
+                                ++ " for module reexport " ++ display re)
+            $ Map.lookup p deps
 
 collectInstallIncludes :: Artifact -> BuildInfo -> Action (Maybe Artifact)
 collectInstallIncludes dir bi
