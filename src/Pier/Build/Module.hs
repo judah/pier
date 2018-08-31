@@ -114,7 +114,7 @@ search ghc flags m srcDir
         happy <- lift $ askBuiltExecutable (mkPackageName "happy") "happy"
         lift . runCommand (output relOutput)
              $ progExe happy
-                     ["-o", relOutput, pathIn yFile]
+                     ["-agc", "-o", relOutput, pathIn yFile]
                 <> input yFile
 
     genHsc2hs = do
@@ -140,7 +140,7 @@ search ghc flags m srcDir
         alex <- lift $ askBuiltExecutable (mkPackageName "alex") "alex"
         lift . runCommand (output relOutput)
             $ progExe alex
-                     ["-o", relOutput, pathIn xFile]
+                     ["-g", "-o", relOutput, pathIn xFile]
                <> input xFile
     genC2hs = do
         let chsFile = srcDir /> toFilePath m <.> "chs"
