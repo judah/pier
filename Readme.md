@@ -151,11 +151,23 @@ pier run --help
 | `pier build {PACKAGE}:exe:{NAME}` | A specific executable in the given package. |
 
 ### `pier run`
-`pier run {TARGET} {ARGUMENTS}` builds the given target, and then runs it with the given command-line arguments.  `{TARGET}` should be a specific executable (for example, `pier:exe:pier`), which may be elided to a package if it contains an executable of the same name (for example, `pier`).
+`pier run {TARGET} {ARGUMENTS}` builds the given executable target, and then runs it with the given command-line arguments.  `{TARGET}` should be a specific executable; either:
+
+| Command | Result |
+| --- | --- |
+| `pier run {PACKAGE}:exe:{NAME}` | A specific executable from the given package. |
+| `pier run {NAME}` | Equivalent to `pier run {NAME}:exe:{NAME}`; an executable from a package of the same name. |
+
+For example, `pier run foo` is equivalent to `pier run foo:exe:foo`.  Note that
+this behavior differs from Stack, which is less explicit: `stack exec foo` may
+run a binary named `foo` from *any* previously built package.
 
 By default, the command will run in the same directory where `pier.yaml` is located.  To run in a temporary, hermetic directory, use `pier run --sandbox`.
 
 In case of ambiguity, `--` can be used to separate arguments of `pier` from arguments of the target.
+
+### `pier which`
+`pier which {TARGET}` builds the given executable target and then prints its location.  See the documentation of `pier run` for details on the syntax of `{TARGET}`.
 
 ### `pier clean`
 `pier clean` marks some metadata in the Shake database as "dirty", so that it will be recreated on the next build.  This command may be required if you build a new version of `pier`, but should be unnecessary otherwise.
