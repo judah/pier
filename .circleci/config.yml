@@ -31,11 +31,13 @@ references:
         # Run pier on some sample packages
         - run:
             command: |
-              $(stack exec which pier) build -j4 \
-                  c2hs elm-core-sources hscolour hsndfile hsx2hs lens \
-                  network-multicast pandoc pier unix-time wreq xhtml yaml \
+               $(stack exec which pier) build -j4 \
+                  --shake-arg=--keep-going \
+                  --pier-yaml=test-package-config.yaml \
+                  c2hs elm-core-sources hscolour hsndfile lens \
+                  network-multicast pandoc unix-time wreq xhtml yaml \
                   X11-xft
-        - run: $(stack exec which pier) build # also build pier's examples
+        - run: $(stack exec which pier) build
         - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
         - run: $(stack exec which pier) run hlint src
         - run:
