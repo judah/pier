@@ -29,7 +29,7 @@ downloadCabalPackage pkg = do
     askDownload Download
         { downloadFilePrefix = "hackage"
         , downloadName = n <.> "tar.gz"
-        , downloadUrlPrefix = "https://hackage.haskell.org/package" </> n
+        , downloadUrlPrefix = "https://hackage.haskell.org/package/" ++ n
         }
 
 getPackageSourceDir :: PackageIdentifier -> Action Artifact
