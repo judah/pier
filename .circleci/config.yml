@@ -33,9 +33,7 @@ references:
         - run:
             command: |
               $(${STACK} exec which pier) build -j4 \
-                  c2hs direct-sqlite elm-core-sources hscolour hsndfile hsx2hs lens \
-                  network-multicast pandoc pier unix-time wreq xhtml yaml \
-                  X11-xft
+                  $(cat .circleci/test-packages.txt) pier
         - run: $(${STACK} exec which pier) build # also build pier's examples
         - run: $(${STACK} exec which pier) run -j4 hlint --sandbox $PWD/src
         - run: $(${STACK} exec which pier) run hlint src
