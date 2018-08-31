@@ -4,6 +4,7 @@ direct-sqlite
 elm-core-sources
 hscolour
 hsndfile
+hsx2hs
 lens
 network-multicast
 pandoc
