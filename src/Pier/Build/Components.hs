@@ -11,7 +11,7 @@ module Pier.Build.Components
 
 import Control.Applicative (liftA2)
 import Control.Monad (filterM)
-import Data.List (find)
+import Data.List (find, intercalate)
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath hiding (exe)
@@ -333,6 +333,8 @@ registerPackage ghc pkg bi cflags maybeLib (BuiltDeps depPkgs transDeps)
                   , "import-dirs: ${pkgroot}" </> pre </> "hi"
                   , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
                   , "hidden-modules: " ++ unwords (map display $ otherModules bi)
+                  , "reexported-modules: " ++
+                        intercalate ", " (map display $ reexportedModules lib)
                   ]
                 )
     spec <- writeArtifact "spec" $ unlines $
