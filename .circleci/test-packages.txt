@@ -1,0 +1,13 @@
+X11-xft
+c2hs
+direct-sqlite
+elm-core-sources
+hscolour
+hsndfile
+lens
+network-multicast
+pandoc
+unix-time
+wreq
+xhtml
+yaml
