@@ -24,8 +24,8 @@ import Pier.Core.Directory
 import Pier.Core.Persistent
 import Pier.Core.Run
 
--- | Downloads @downloadUrlPrefix </> downloadName@ to
--- @downloadFilePrefix </> downloadName@.
+-- | Downloads @downloadUrlPrefix / downloadName@ to
+-- @downloadFilePrefix / downloadName@.
 -- Everything is stored in `~/.pier/downloads`.
 data Download = Download
     { downloadUrlPrefix :: String
@@ -66,7 +66,7 @@ downloadRules loc = do
             (createPierTempFile $ takeFileName $ downloadName d)
             Directory.removeFile
             $ \tmp -> do
-                        let url = downloadUrlPrefix d </> downloadName d
+                        let url = downloadUrlPrefix d ++ "/" ++ downloadName d
                         req <- parseRequest url
                         resp <- httpLbs req manager
                         unless (statusIsSuccessful . responseStatus $ resp)
