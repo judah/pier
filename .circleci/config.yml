@@ -32,7 +32,7 @@ references:
         - run:
             command: |
               $(stack exec which pier) build -j4 \
-                  --shake-arg=--keep-going \
+                  --keep-going \
                   --pier-yaml=test-package-config.yaml \
                   $(cat .circleci/test-packages.txt)
         - run: $(stack exec which pier) build
