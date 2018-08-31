@@ -81,9 +81,6 @@ import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class
 import Crypto.Hash.SHA256
 import Data.ByteString.Base64
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup (Semigroup(..))
-#endif
 import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes hiding (hash)
@@ -92,9 +89,6 @@ import Distribution.Simple.Utils (matchDirFileGlob)
 import GHC.Generics
 import System.Directory as Directory
 import System.Exit (ExitCode(..))
-#if !MIN_VERSION_directory(1,3,1)
-import System.Posix.Files (createSymbolicLink)
-#endif
 import System.Process.Internals (translate)
 
 import qualified Data.Binary as Binary
@@ -298,12 +292,6 @@ createExternalLink = do
     unless exists $ do
         createParentIfMissing externalArtifactDir
         createDirectoryLink "../.." externalArtifactDir
-
-#if !MIN_VERSION_directory(1,3,1)
-createFileLink, createDirectoryLink :: FilePath -> FilePath -> IO ()
-createFileLink = createSymbolicLink
-createDirectoryLink = createSymbolicLink
-#endif
 
 -- | The build rule type for commands.
 data CommandQ = CommandQ

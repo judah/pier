@@ -11,11 +11,7 @@ import Development.Shake.FilePath
 import Distribution.Compiler
 import Distribution.Package
 import Distribution.PackageDescription
-#if MIN_VERSION_Cabal(2,2,0)
 import Distribution.PackageDescription.Parsec
-#else
-import Distribution.PackageDescription.Parse
-#endif
 import Distribution.System (buildOS, buildArch)
 import Distribution.Text (display)
 import Distribution.Types.CondTree (CondBranch(..))
@@ -52,11 +48,7 @@ configurePackage plan flags packageSourceDir = do
     let desc = flattenToDefaultFlags plan flags gdesc
     let name = display (packageName desc)
     case buildType desc of
-#if MIN_VERSION_Cabal(2,2,0)
         Configure -> do
-#else
-        Just Configure -> do
-#endif
             let configuredDir = name
             configuredPackage <- runCommand (output configuredDir)
                 $ shadow packageSourceDir configuredDir
@@ -77,34 +69,19 @@ configurePackage plan flags packageSourceDir = do
 parseCabalFileInDir :: Artifact -> Action GenericPackageDescription
 parseCabalFileInDir dir = do
     cabalFile <- findCabalFile dir
-#if MIN_VERSION_Cabal(2,2,0)
     cabalContents <- readArtifactB cabalFile
     -- TODO: better error message when parse fails; and maybe warnings too?
     case runParseResult $ parseGenericPackageDescription cabalContents of
         (_, Right pkg) -> return pkg
         e -> error $ show e ++ "\n" ++ show cabalContents
-#else
-    cabalContents <- readArtifact cabalFile
-    case parseGenericPackageDescription cabalContents of
-        ParseFailed err -> error $ show err ++ "\n" ++ cabalContents
-        ParseOk _ pkg -> return pkg
-#endif
 
 readHookedBuildInfoA :: Artifact -> Action HookedBuildInfo
 readHookedBuildInfoA file = do
-#if MIN_VERSION_Cabal(2,2,0)
     hookedBIParse <- parseHookedBuildInfo <$> readArtifactB file
     case runParseResult hookedBIParse of
         (_,Right hookedBI) -> return hookedBI
         e -> error $ "Error reading buildinfo " ++ show file
                                                     ++ ": " ++ show e
-#else
-    hookedBIParse <- parseHookedBuildInfo <$> readArtifact file
-    case hookedBIParse of
-        ParseFailed e -> error $ "Error reading buildinfo " ++ show file
-                                                    ++ ": " ++ show e
-        ParseOk _ hookedBI -> return hookedBI
-#endif
 
 findCabalFile :: Artifact -> Action Artifact
 findCabalFile dir = do

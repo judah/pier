@@ -8,9 +8,6 @@ module Pier.Build.CFlags
 
 import Control.Applicative (liftA2)
 import Control.Monad (guard)
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup (Semigroup(..))
-#endif
 import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes

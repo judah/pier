@@ -21,9 +21,6 @@ instance Hashable a => Hashable (Set.Set a) where
     hashWithSalt k = hashWithSalt k . Set.toList
 
 instance Hashable FlagName
-#if !MIN_VERSION_Cabal(2,2,0)
-instance NFData FlagName
-#endif
 instance Hashable PackageId
 instance Hashable PackageName
 instance Hashable ComponentId
