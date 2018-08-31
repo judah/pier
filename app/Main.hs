@@ -96,16 +96,22 @@ hide Shown = mempty
 
 parseShakeFlags :: Hidden -> Parser [String]
 parseShakeFlags h =
-    mconcat <$> sequenceA [verbosity, many parallelism, many shakeArg]
+    mconcat <$> sequenceA [verbosity, parallelism, keepGoing, shakeArg]
   where
-    shakeArg = strOption (long "shake-arg" <> metavar "SHAKEARG" <> hide h)
+    shakeArg = many $ strOption (long "shake-arg" <> metavar "SHAKEARG" <> hide h)
 
+    verbosity, parallelism, keepGoing, shakeArg :: Parser [String]
     parallelism =
-        fmap ("--jobs=" ++) . strOption
+        fmap (maybe [] (\j -> ["--jobs=" ++ j]))
+            $ optional $ strOption
             $ long "jobs"
                 <> short 'j'
                 <> help "Number of job/threads at once [default CPUs]"
                 <> hide h
+
+    keepGoing = flag [] ["--keep-going"]
+                    $ long "keep-going"
+                    <> help "Keep going when some targets can't be built."
 
     verbosity =
         fmap combineFlags . many . flag' 'V'

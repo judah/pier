@@ -133,6 +133,7 @@ pier run --help
 | `--jobs={N}`, `-j{N}` | Run with at most this much parallelism | The number of detected CPUs |
 | `-V` | Increase the verbosity level | |
 | `--shake-arg={ARG}` | Pass the argument directly to Shake | |
+| `--keep-going` | Keep going if there are errors | False; stop after the first error |
 | `--keep-temps` | Preserve temporary directories | False |
 | `--download-local` | Save downloads under the local `_pier` instead of `$HOME/.pier` | False |
 
