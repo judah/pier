@@ -10,15 +10,14 @@ category: Development
 github: judah/pier
 
 dependencies:
-  - base
-  - directory
-  - Cabal
+  - base >= 4.11.0
+  - directory >= 1.3.1
+  - Cabal >= 2.2.0.0
   - shake
   - unordered-containers
 
 default-extensions:
   - BangPatterns
-  - CPP
   - DeriveGeneric
   - FlexibleContexts
   - LambdaCase
@@ -49,10 +48,6 @@ library:
     - text
     - transformers
     - yaml
-  when:
-    - condition: "!os(windows)"
-      dependencies:
-        - unix
 
 # Work around haskell/cabal#4739
 when:

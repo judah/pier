@@ -54,12 +54,15 @@ jobs:
     <<: *build-base
     environment:
       - STACK: "stack"
-      - EXAMPLE_RESOLVER: "lts-10.3"
-  build-nightly:
-    <<: *build-base
-    environment:
-      - STACK: "stack --resolver=nightly-2018-05-05"
-      - EXAMPLE_RESOLVER: "nightly-2018-05-05"
+      - EXAMPLE_RESOLVER: "lts-12.8"
+  # Note: more builds may be added here and made
+  # requirements of build-success.
+  # For example:
+  # build-nightly:
+  #  <<: *build-base
+  #  environment:
+  #    - STACK: "stack --resolver=nightly-2018-05-05"
+  #    - EXAMPLE_RESOLVER: "nightly-2018-05-05"
   build-success:
     docker:
       - image: judah/pier-ci:v1
@@ -71,8 +74,6 @@ workflows:
   build-and-test:
       jobs:
         - build
-        - build-nightly
         - build-success:
             requires:
               - build
-              - build-nightly
