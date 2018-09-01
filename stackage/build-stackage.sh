@@ -12,7 +12,7 @@ time stack --docker --docker-image $IMAGE \
     exec -- pier build \
     --download-local \
     --pier-yaml=stackage/pier.yaml \
-    --shake-arg=--keep-going \
+    --keep-going \
     -j 2 \
     -V \
     $(cat $PACKAGES)

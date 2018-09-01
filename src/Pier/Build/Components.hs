@@ -15,9 +15,7 @@ module Pier.Build.Components
 import Control.Applicative (liftA2)
 import Control.Monad (filterM)
 import Data.List (find)
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup ((<>))
-#endif
+import Data.Maybe (fromMaybe)
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath hiding (exe)
@@ -397,6 +395,7 @@ registerPackage
 registerPackage ghc pkg bi cflags maybeLib (BuiltDeps depPkgs transDeps)
     = do
     let pre = "files"
+    let depsByName = Map.fromList [(packageName p, p) | p <- depPkgs]
     let (collectLibInputs, libDesc) = case maybeLib of
             Nothing -> (createDirectoryA pre, [])
             Just (libHSName, lib, dynLibA, hi) ->
@@ -406,7 +405,10 @@ registerPackage ghc pkg bi cflags maybeLib (BuiltDeps depPkgs transDeps)
                   , "library-dirs: ${pkgroot}" </> pre
                   , "dynamic-library-dirs: ${pkgroot}" </> pre
                   , "import-dirs: ${pkgroot}" </> pre </> "hi"
-                  , "exposed-modules: " ++ unwords (map display $ exposedModules lib)
+                  , "exposed-modules: " ++
+                        unwords (map display (exposedModules lib)
+                                ++ map (renderReexport depsByName)
+                                        (reexportedModules lib))
                   , "hidden-modules: " ++ unwords (map display $ otherModules bi)
                   ]
                 )
@@ -425,7 +427,7 @@ registerPackage ghc pkg bi cflags maybeLib (BuiltDeps depPkgs transDeps)
            | not (null $ macFrameworks cflags)
            ]
         ++ libDesc
-    let db = "db"
+    let db = display pkg
     runCommand (liftA2 (,) (output db) (output pre))
         $ collectLibInputs
             <> ghcPkgProg ghc ["init", db]
@@ -444,6 +446,18 @@ dynExt :: String
 dynExt = case buildOS of
         OSX -> "dylib"
         _ -> "so"
+
+renderReexport ::
+    Map.Map PackageName PackageIdentifier -> ModuleReexport -> String
+renderReexport deps re = display (moduleReexportName re) ++ " from "
+                    ++ maybe "" (\pkg -> display (originalPkg pkg) ++ ":")
+                            (moduleReexportOriginalPackage re)
+                    ++ display (moduleReexportOriginalName re)
+  where
+    originalPkg p =
+        fromMaybe (error $ "Unknown package name " ++ display p
+                                ++ " for module reexport " ++ display re)
+            $ Map.lookup p deps
 
 collectInstallIncludes :: Artifact -> BuildInfo -> Action (Maybe Artifact)
 collectInstallIncludes dir bi

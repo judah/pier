@@ -35,7 +35,7 @@ Pier is still experimental.  It has been tested on small projects, but not yet u
 Pier is already able to build most the packages in Stackage (specifically, 90% of
 the more than 2600 packages in `lts-10.3`). There is a
 [list of open issues](https://github.com/judah/pier/issues?q=is%3Aissue+is%3Aopen+label%3A%22Build+All+The+Packages%22)
-to increase Pier's coverage.  (Notably, packages with [Custom Setup.hs scripts](#22)
+to increase Pier's coverage.  (Notably, packages with [Custom Setup.hs scripts](https://github.com/judah/pier/issues/22)
 are not supported.)
 
 ## Contents
@@ -133,6 +133,7 @@ pier run --help
 | `--jobs={N}`, `-j{N}` | Run with at most this much parallelism | The number of detected CPUs |
 | `-V` | Increase the verbosity level | |
 | `--shake-arg={ARG}` | Pass the argument directly to Shake | |
+| `--keep-going` | Keep going if there are errors | False; stop after the first error |
 | `--keep-temps` | Preserve temporary directories | False |
 | `--download-local` | Save downloads under the local `_pier` instead of `$HOME/.pier` | False |
 
@@ -145,17 +146,29 @@ pier run --help
 | Command | Targets |
 | --- | --- |
 | `pier build` | All the libraries and executables for every entry in `packages`. |
-| `pier build {PACKAGE}` | The library and executables (if any) for the given package.  For example: `text` or `pier`.  `{PACKAGE}` can be a local package, one from the LTS, or one specified in `extra-deps`. |
+| `pier build {PACKAGE}` | The library and executables (if any) for the given package.<br>For example: `text` or `pier`.  `{PACKAGE}` can be a local package,<br>one from the LTS, or one specified in `extra-deps`. |
 | `pier build {PACKAGE}:lib` | The library for the given package. |
-| `pier build {PACKAGE}:exe` | The executables for the given package, but not the library (unless it is a dependency of one of them). |
+| `pier build {PACKAGE}:exe` | The executables for the given package, but not the library<br>(unless it is a dependency of one of them). |
 | `pier build {PACKAGE}:exe:{NAME}` | A specific executable in the given package. |
 
 ### `pier run`
-`pier run {TARGET} {ARGUMENTS}` builds the given target, and then runs it with the given command-line arguments.  `{TARGET}` should be a specific executable (for example, `pier:exe:pier`), which may be elided to a package if it contains an executable of the same name (for example, `pier`).
+`pier run {TARGET} {ARGUMENTS}` builds the given executable target, and then runs it with the given command-line arguments.  `{TARGET}` should be a specific executable; either:
 
-By default, the command will run in the same directory where `pier.yaml` is located.  To run in a temporary, hermetic directory, use `pier run --sandbox`.
+| Command | Result |
+| --- | --- |
+| `pier run {PACKAGE}:exe:{NAME}` | A specific executable from the given package. |
+| `pier run {NAME}` | Equivalent to `pier run {NAME}:exe:{NAME}`;<br>an executable from a package of the same name. |
+
+For example, `pier run foo` is equivalent to `pier run foo:exe:foo`.  Note that
+this behavior differs from Stack, which is less explicit: `stack exec foo` may
+run a binary named `foo` from *any* previously built package.
+
+By default, the executable will run in the same directory where `pier.yaml` is located.  To run in a temporary, hermetic directory, use `pier run --sandbox`.
 
 In case of ambiguity, `--` can be used to separate arguments of `pier` from arguments of the target.
+
+### `pier which`
+`pier which {TARGET}` builds the given executable target and then prints its location.  See the documentation of `pier run` for details on the syntax of `{TARGET}`.
 
 ### `pier clean`
 `pier clean` marks some metadata in the Shake database as "dirty", so that it will be recreated on the next build.  This command may be required if you build a new version of `pier`, but should be unnecessary otherwise.

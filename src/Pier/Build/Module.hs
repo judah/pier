@@ -10,9 +10,6 @@ import Control.Monad (guard, msum)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe
 import Data.List (intercalate)
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup ((<>))
-#endif
 import Development.Shake
 import Distribution.ModuleName
 import Distribution.Package (PackageIdentifier(..), mkPackageName)
@@ -114,7 +111,7 @@ search ghc flags m srcDir
         happy <- lift $ askBuiltExecutable (mkPackageName "happy") "happy"
         lift . runCommand (output relOutput)
              $ progExe happy
-                     ["-o", relOutput, pathIn yFile]
+                     ["-agc", "-o", relOutput, pathIn yFile]
                 <> input yFile
 
     genHsc2hs = do
@@ -140,7 +137,7 @@ search ghc flags m srcDir
         alex <- lift $ askBuiltExecutable (mkPackageName "alex") "alex"
         lift . runCommand (output relOutput)
             $ progExe alex
-                     ["-o", relOutput, pathIn xFile]
+                     ["-g", "-o", relOutput, pathIn xFile]
                <> input xFile
     genC2hs = do
         let chsFile = srcDir /> toFilePath m <.> "chs"

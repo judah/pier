@@ -81,9 +81,6 @@ import Control.Monad (forM_, when, unless)
 import Control.Monad.IO.Class
 import Crypto.Hash.SHA256
 import Data.ByteString.Base64
-#if !MIN_VERSION_base(4,11,0)
-import Data.Semigroup (Semigroup(..))
-#endif
 import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes hiding (hash)
@@ -92,9 +89,6 @@ import Distribution.Simple.Utils (matchDirFileGlob)
 import GHC.Generics
 import System.Directory as Directory
 import System.Exit (ExitCode(..))
-#if !MIN_VERSION_directory(1,3,1)
-import System.Posix.Files (createSymbolicLink)
-#endif
 import System.Process.Internals (translate)
 
 import qualified Data.Binary as Binary
@@ -215,9 +209,9 @@ instance Applicative Output where
 -- The input must be a relative path and nontrivial (i.e., not @"."@ or @""@).
 output :: FilePath -> Output Artifact
 output f
-    | normalise f == "." = error $ "Can't output empty path " ++ show f
+    | normaliseMore f == "." = error $ "Can't output empty path " ++ show f
     | isAbsolute f = error $ "Can't output absolute path " ++ show f
-    | otherwise = Output [f] $ flip Artifact (normalise f) . Built
+    | otherwise = Output [f] $ flip Artifact (normaliseMore f) . Built
 
 -- | Unique identifier of a command
 newtype Hash = Hash B.ByteString
@@ -273,12 +267,16 @@ externalFile f
     | artifactDir `List.isPrefixOf` f' = error $ "externalFile: forbidden prefix: " ++ show f'
     | otherwise = Artifact External f'
   where
-    f' = normalise f
+    f' = normaliseMore f
+
+-- | Normalize a filepath, also dropping the trailing slash.
+normaliseMore :: FilePath -> FilePath
+normaliseMore = dropTrailingPathSeparator . normalise
 
 -- | Create a reference to a sub-file of the given 'Artifact', which must
 -- refer to a directory.
 (/>) :: Artifact -> FilePath -> Artifact
-Artifact source f /> g = Artifact source $ normalise $ f </> g
+Artifact source f /> g = Artifact source $ normaliseMore $ f </> g
 
 infixr 5 />  -- Same as </>
 
@@ -294,12 +292,6 @@ createExternalLink = do
     unless exists $ do
         createParentIfMissing externalArtifactDir
         createDirectoryLink "../.." externalArtifactDir
-
-#if !MIN_VERSION_directory(1,3,1)
-createFileLink, createDirectoryLink :: FilePath -> FilePath -> IO ()
-createFileLink = createSymbolicLink
-createDirectoryLink = createSymbolicLink
-#endif
 
 -- | The build rule type for commands.
 data CommandQ = CommandQ
@@ -661,7 +653,7 @@ writeArtifactRules = addPersistent
         let out = tmpDir </> path
         createParentIfMissing out
         liftIO $ writeFile out contents
-    return $ Artifact (Built h) $ normalise path
+    return $ Artifact (Built h) $ normaliseMore path
 
 doesArtifactExist :: Artifact -> Action Bool
 doesArtifactExist (Artifact External f) = Development.Shake.doesFileExist f
