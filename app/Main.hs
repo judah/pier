@@ -219,7 +219,7 @@ runWithOptions next ht (Test sandbox (pkg, TargetAllTestSuites)) = do
     action $ do
         suites <- askBuiltTestSuites pkg
         sequence_
-            $ (\suite -> liftIO $ writeIORef next $ runTestSuite ht sandbox suite)
+            $ (liftIO . writeIORef next . runTestSuite ht sandbox)
             <$> suites
 runWithOptions next ht (Test sandbox (pkg, target)) = do
     cleaning False
