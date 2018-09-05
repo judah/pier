@@ -221,10 +221,8 @@ makeHash :: Binary a => a -> Hash
 makeHash = Hash . fixChars . dropPadding . encode . hashlazy . Binary.encode
   where
     -- Remove slashes, since the strings will appear in filepaths.
-    -- Also remove `+` to reduce shell errors.
     fixChars = BC.map $ \case
-                                '/' -> '-'
-                                '+' -> '.'
+                                '/' -> '_'
                                 c -> c
     -- Padding just adds noise, since we don't have length requirements (and indeed
     -- every sha256 hash is 32 bytes)
