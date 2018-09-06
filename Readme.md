@@ -136,7 +136,7 @@ pier run --help
 | `--keep-going` | Keep going if there are errors | False; stop after the first error |
 | `--keep-temps` | Preserve temporary directories | False |
 | `--download-local` | Save downloads under the local `_pier` instead of `$HOME/.pier` | False |
-
+| `--shared-cache` | Share a cache of build artifacts between different workspaces, located inside `$HOME/.pier` | False |
 
 
 ### `pier build`

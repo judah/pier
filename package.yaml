@@ -47,6 +47,7 @@ library:
     - temporary
     - text
     - transformers
+    - unix
     - yaml
 
 # Work around haskell/cabal#4739

@@ -46,17 +46,21 @@ data CommonOptions = CommonOptions
     , shakeFlags :: [String]
     , lastHandleTemps :: Last HandleTemps
     , lastDownloadLocation :: Last DownloadLocation
+    , lastSharedCache :: Last UseSharedCache
     }
 
 instance Semigroup CommonOptions where
-    CommonOptions y f ht dl <> CommonOptions y' f' ht' dl'
-        = CommonOptions (y <> y') (f <> f') (ht <> ht') (dl <> dl')
+    CommonOptions y f ht dl sc <> CommonOptions y' f' ht' dl' sc'
+        = CommonOptions (y <> y') (f <> f') (ht <> ht') (dl <> dl') (sc <> sc')
 
 handleTemps :: CommonOptions -> HandleTemps
 handleTemps = fromMaybe RemoveTemps . getLast . lastHandleTemps
 
 downloadLocation :: CommonOptions -> DownloadLocation
 downloadLocation = fromMaybe DownloadToHome . getLast . lastDownloadLocation
+
+sharedCache :: CommonOptions -> UseSharedCache
+sharedCache = fromMaybe DontUseSharedCache . getLast . lastSharedCache
 
 -- | Parse command-independent options.
 --
@@ -66,9 +70,11 @@ downloadLocation = fromMaybe DownloadToHome . getLast . lastDownloadLocation
 -- in "pier --help", not "pier build --help".  Doing so is slightly
 -- cumbersome with optparse-applicative.
 parseCommonOptions :: Hidden -> Parser CommonOptions
-parseCommonOptions h = CommonOptions <$> parsePierYaml <*> parseShakeFlags h
+parseCommonOptions h = CommonOptions <$> parsePierYaml
+                                     <*> parseShakeFlags h
                                      <*> parseHandleTemps
                                      <*> parseDownloadLocation
+                                     <*> parseSharedCache
   where
     parsePierYaml :: Parser (Last FilePath)
     parsePierYaml = fmap Last $ optional $ strOption
@@ -87,6 +93,15 @@ parseCommonOptions h = CommonOptions <$> parsePierYaml <*> parseShakeFlags h
             flag DownloadToHome DownloadLocal
                 (long "download-local"
                 <> help "Store downloads in the local _pier directory")
+
+    parseSharedCache :: Parser (Last UseSharedCache)
+    parseSharedCache = Last . Just <$>
+                        flag DontUseSharedCache UseSharedCache
+                            ( long "shared-cache"
+                            <> help "Use a shared cache at ~/.pier/artifact")
+
+
+data UseSharedCache = UseSharedCache | DontUseSharedCache
 
 data Hidden = Hidden | Shown
 
@@ -245,17 +260,24 @@ main = do
     (root, pierYamlFile)
         <- splitFileName <$> findPierYamlFile (getLast $ pierYaml commonOpts)
     let ht = handleTemps commonOpts
+    cache <- getSharedCache $ sharedCache commonOpts
     bracket getCurrentDirectory setCurrentDirectory $ const $ do
         setCurrentDirectory root
         withArgs (shakeFlags commonOpts) $ runPier $ do
             buildPlanRules
             buildPackageRules
-            artifactRules ht
+            artifactRules cache ht
             downloadRules $ downloadLocation commonOpts
             installGhcRules
             configRules pierYamlFile
             runWithOptions next ht cmdOpt
         join $ readIORef next
+
+getSharedCache :: UseSharedCache -> IO (Maybe SharedCache)
+getSharedCache DontUseSharedCache = return Nothing
+getSharedCache UseSharedCache = do
+    h <- getHomeDirectory
+    return $ Just $ SharedCache $ h </> ".pier" </> "artifact"
 
 -- TODO: move into Build.hs
 data Target
