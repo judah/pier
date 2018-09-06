@@ -464,29 +464,34 @@ readProgCall dir p as cwd = do
                         , err
                         ]
 
--- TODO: check the destination files actually exist.
 linkShadow :: FilePath -> Artifact -> FilePath -> IO ()
 linkShadow dir a0 f0 = do
-    let out = dir </> f0
-    createParentIfMissing out
-    rootDir <- Directory.getCurrentDirectory
-    deepLink (rootDir </> pathIn a0) out
+    createParentIfMissing (dir </> f0)
+    loop a0 f0
   where
-    deepLink a f = do
-        isDir <- Directory.doesDirectoryExist a
+    loop a f = do
+        let aPath = pathIn a
+        isDir <- Directory.doesDirectoryExist aPath
         if isDir
             then do
-                    Directory.createDirectoryIfMissing False f
-                    cs <- getRegularContents a
-                    mapM_ (\c -> deepLink (a </> c) (f </> c)) cs
+                Directory.createDirectoryIfMissing False (dir </> f)
+                cs <- getRegularContents aPath
+                mapM_ (\c -> loop (a /> c) (f </> c)) cs
             else do
-                    srcExists <- Directory.doesFileExist a
-                    destExists <- Directory.doesPathExist f
-                    if
-                        | not srcExists -> error $ "linkShadow: missing source " ++ show a
-                        | destExists -> error $ "linkShadow: destination already exists: "
-                                                    ++ show f
-                        | otherwise -> createFileLink a f
+                srcExists <- Directory.doesFileExist aPath
+                destExists <- Directory.doesPathExist (dir </> f)
+                let aPath' = case a of
+                                Artifact External aa -> "external" </> aa
+                                Artifact (Built h) aa -> hashString h </> aa
+                if
+                    | not srcExists -> error $ "linkShadow: missing source "
+                                                ++ show aPath
+                    | destExists -> error $ "linkShadow: destination already exists: "
+                                                ++ show f
+                    | otherwise -> createFileLink
+                                    (relPathUp f </> "../../artifact" </> aPath')
+                                    (dir </> f)
+    relPathUp = joinPath . map (const "..") . splitDirectories . parentDirectory
 
 showProg :: Prog -> String
 showProg (Shadow a f) = unwords ["Shadow:", pathIn a, "=>", f]
@@ -510,8 +515,8 @@ showCommand (CommandQ (Command progs inps) outputs) = unlines $
     ++ map showInput (Set.toList inps)
     ++ map showProg progs
   where
-    showInput i = "Input: " ++ pathIn i
     showOutput a = "Output: " ++ a
+    showInput i = "Input: " ++ pathIn i
 
 stdoutOutput :: FilePath
 stdoutOutput = "_stdout"

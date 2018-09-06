@@ -1,5 +1,6 @@
 module Pier.Core.Directory
     ( createParentIfMissing
+    , parentDirectory
     ) where
 
 import Control.Monad.IO.Class
@@ -17,5 +18,9 @@ createParentIfMissing
 --
 -- parentDirectory "foo/bar"  == "foo"
 -- parentDirectory "foo/bar/" == "foo"
+-- parentDirectory "foo" == ""
 parentDirectory :: FilePath -> FilePath
-parentDirectory = takeDirectory . dropTrailingPathSeparator
+parentDirectory = fixPeriod . takeDirectory . dropTrailingPathSeparator
+  where
+    fixPeriod "." = ""
+    fixPeriod x = x
