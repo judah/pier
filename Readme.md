@@ -115,6 +115,18 @@ This setting will make `pier` look in the `$PATH`
 for a binary named `ghc-VERSION`, where `VERSION` is the version specified in the
 resolver (for example: `ghc-8.2.2`).
 
+### ghc-options
+A list of command-line flags to pass to GHC when compiling packages.  For example:
+```
+ghc-options: [-O2, -Wall]
+```
+or:
+```
+ghc-options:
+- -O2
+- -Wall
+```
+
 # Using `pier`
 
 For general comnmand-line usage, pass the `--help` flag:

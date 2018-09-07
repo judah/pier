@@ -104,7 +104,8 @@ buildLibrary (BuiltLibraryQ pkg) =
 
 getBuiltinLib :: BuiltinLibraryR -> Action TransitiveDeps
 getBuiltinLib (BuiltinLibraryR p) = do
-    ghc <- configGhc <$> askConfig
+    conf <- askConfig
+    let ghc = configGhc conf
     result <- runCommandStdout
                 $ ghcPkgProg ghc
                     ["describe" , display p]
@@ -164,6 +165,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                     (liftA2 (,) (output hiDir) (output dynLibFile))
                     $ message (display pkg ++ ": building library")
                     <> ghcCommand ghc deps confd tinfo
+                          (ghcOptions conf ++
                             [ "-this-unit-id", display pkg
                             , "-hidir", hiDir
                             , "-hisuf", "dyn_hi"
@@ -171,7 +173,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                             , "-odir", oDir
                             , "-shared", "-dynamic"
                             , "-o", dynLibFile
-                            ]
+                            ])
                 return $ Just (libHSName, lib, dynLib, hiDir')
     (pkgDb, libFiles) <- registerPackage ghc pkg lbi
                                 (targetCFlags tinfo) maybeLib
@@ -232,7 +234,8 @@ buildExecutableFromPkg confd exe = do
     let desc = confdDesc confd
     deps@(BuiltDeps _ transDeps)
         <- askBuiltDeps $ targetDepNamesOrAllDeps desc (buildInfo exe)
-    ghc <- configGhc <$> askConfig
+    conf <- askConfig
+    let ghc = configGhc conf
     let out = "exe" </> name
     tinfo <- getTargetInfo confd (buildInfo exe) (TargetBinary $ modulePath exe)
                 transDeps ghc
@@ -240,12 +243,13 @@ buildExecutableFromPkg confd exe = do
         $ message (display (package desc) ++ ": building executable "
                     ++ name)
         <> ghcCommand ghc deps confd tinfo
+              (ghcOptions conf ++
                 [ "-o", out
                 , "-hidir", "hi"
                 , "-odir", "o"
                 , "-dynamic"
                 , "-threaded"
-                ]
+                ])
     return BuiltExecutable
         { builtBinary = bin
         , builtExeDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
