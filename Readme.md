@@ -131,12 +131,11 @@ pier run --help
 | --- | --- | --- |
 | `--pier-yaml={PATH}` | Use that file for build configuration | `pier.yaml` |
 | `--jobs={N}`, `-j{N}` | Run with at most this much parallelism | The number of detected CPUs |
-| `-V` | Increase the verbosity level | |
+| `-V` | Increase the verbosity level. [Details](#verbosity) | |
 | `--shake-arg={ARG}` | Pass the argument directly to Shake | |
 | `--keep-going` | Keep going if there are errors | False; stop after the first error |
 | `--keep-temps` | Preserve temporary directories | False |
 | `--download-local` | Save downloads under the local `_pier` instead of `$HOME/.pier` | False |
-
 
 
 ### `pier build`
@@ -178,6 +177,18 @@ In case of ambiguity, `--` can be used to separate arguments of `pier` from argu
 files, as described [here](#build-outputs)), so that future builds will start
 from scratch.  Note that this command will require Pier to reinstall a local
 copy of GHC unless `system-ghc: true` is set.
+
+### Verbosity
+The `-V` command-line flag will make Pier more verbose.  It may be chained to increase verbosity (for example: `-VV`, `-V -V`, `-VVV`).
+
+The verbose output includes (but is not necessarily limited to):
+
+- `-V`: Upon failure of an invocation of a command-line process (for example,
+  `ghc`), display the full invocation of that command including all command-line
+  flags and build inputs.
+- `-VV`: Display the full invocation of every command before running it.
+- `-VVV`: Also display internal Shake debug information.
+
 
 # Build Outputs
 
