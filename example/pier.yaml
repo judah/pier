@@ -1,4 +1,3 @@
-system-ghc: True
 resolver: lts-12.8
 
 packages:
