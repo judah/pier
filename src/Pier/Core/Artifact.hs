@@ -238,7 +238,7 @@ makeHash x = do
     tagVersion = (,)
 
 -- | Version number of artifacts being generated.
-data ArtifactVersion = ArtifactVersion Int
+newtype ArtifactVersion = ArtifactVersion Int
     deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
 
 data GetArtifactVersion = GetArtifactVersion
@@ -487,7 +487,6 @@ copyToCache cache h src = do
     let dest = globalHashDir cache h
     createParentIfMissing dest
     Directory.renameDirectory tempDir dest
-
 
 -- Call a process inside the given directory and capture its stdout.
 -- TODO: more flexibility around the env vars

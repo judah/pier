@@ -100,7 +100,6 @@ parseCommonOptions h = CommonOptions <$> parsePierYaml
                             ( long "shared-cache"
                             <> help "Use a shared cache at ~/.pier/artifact")
 
-
 data UseSharedCache = UseSharedCache | DontUseSharedCache
 
 data Hidden = Hidden | Shown
