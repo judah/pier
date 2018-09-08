@@ -41,6 +41,7 @@ produce the files that we expect.
 module Pier.Core.Artifact
     ( -- * Rules
       artifactRules
+    , SharedCache(..)
       -- * Artifact
     , Artifact
     , externalFile
@@ -77,7 +78,7 @@ module Pier.Core.Artifact
     , createDirectoryA
     ) where
 
-import Control.Monad (forM_, when, unless)
+import Control.Monad (forM_, when, unless, void)
 import Control.Monad.IO.Class
 import Crypto.Hash.SHA256
 import Data.ByteString.Base64
@@ -217,8 +218,12 @@ output f
 newtype Hash = Hash B.ByteString
     deriving (Show, Eq, Ord, Binary, NFData, Hashable, Generic)
 
-makeHash :: Binary a => a -> Hash
-makeHash = Hash . fixChars . dropPadding . encode . hashlazy . Binary.encode
+makeHash :: Binary a => a -> Action Hash
+makeHash x = do
+    version <- askOracle GetArtifactVersion
+    return . Hash . fixChars . dropPadding . encode . hashlazy . Binary.encode
+         . tagVersion version
+        $ x
   where
     -- Remove slashes, since the strings will appear in filepaths.
     fixChars = BC.map $ \case
@@ -230,9 +235,29 @@ makeHash = Hash . fixChars . dropPadding . encode . hashlazy . Binary.encode
         | BC.last c == '=' = BC.init c
         -- Shouldn't happen since each hash is the same length:
         | otherwise = c
+    tagVersion = (,)
+
+-- | Version number of artifacts being generated.
+newtype ArtifactVersion = ArtifactVersion Int
+    deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
+
+data GetArtifactVersion = GetArtifactVersion
+    deriving (Show,Typeable,Eq,Hashable,Binary,NFData,Generic)
+type instance RuleResult GetArtifactVersion = ArtifactVersion
+
+artifactVersionRule :: Rules ()
+artifactVersionRule = void $ addOracle $ \GetArtifactVersion
+    -- Bumping this will cause every artifact to be regenerated, and should
+    -- only be done in case of backwards-incompatible changes.
+    -> return $ ArtifactVersion 1
 
 hashDir :: Hash -> FilePath
 hashDir h = artifactDir </> hashString h
+
+newtype SharedCache = SharedCache FilePath
+
+globalHashDir :: SharedCache -> Hash -> FilePath
+globalHashDir (SharedCache f) h = f </> hashString h
 
 artifactDir :: FilePath
 artifactDir = pierFile "artifact"
@@ -278,11 +303,12 @@ Artifact source f /> g = Artifact source $ normaliseMore $ f </> g
 
 infixr 5 />  -- Same as </>
 
-artifactRules :: HandleTemps -> Rules ()
-artifactRules ht = do
+artifactRules :: Maybe SharedCache -> HandleTemps -> Rules ()
+artifactRules cache ht = do
     liftIO createExternalLink
-    commandRules ht
-    writeArtifactRules
+    commandRules cache ht
+    writeArtifactRules cache
+    artifactVersionRule
 
 createExternalLink :: IO ()
 createExternalLink = do
@@ -323,7 +349,7 @@ commandHash cmdQ = do
     need externalFiles
     -- TODO: streaming hash
     userFileHashes <- liftIO $ map hash <$> mapM B.readFile externalFiles
-    return $ makeHash ("commandHash", cmdQ, userFileHashes)
+    makeHash ("commandHash", cmdQ, userFileHashes)
 
 -- | Run the given command, capturing the specified outputs.
 runCommand :: Output t -> Command -> Action t
@@ -341,11 +367,11 @@ runCommandStdout c = do
 runCommand_ :: Command -> Action ()
 runCommand_ = runCommand (pure ())
 
-commandRules :: HandleTemps -> Rules ()
-commandRules ht = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
+commandRules :: Maybe SharedCache -> HandleTemps -> Rules ()
+commandRules sharedCache ht = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
     putChatty $ showCommand cmdQ
     h <- commandHash cmdQ
-    createArtifacts h $ \resultDir ->
+    createArtifacts sharedCache h (progMessages progs) $ \resultDir ->
       -- Run the command within a separate temporary directory.
       -- When it's done, we'll move the explicit set of outputs into
       -- the result location.
@@ -383,6 +409,9 @@ putChatty s = do
     v <- shakeVerbosity <$> getShakeOptions
     when (v >= Chatty) $ putNormal s
 
+progMessages :: [Prog] -> [String]
+progMessages ps = [m | Message m <- ps]
+
 -- TODO: more hermetic?
 collectInputs :: Set Artifact -> FilePath -> IO ()
 collectInputs inps tmp = do
@@ -397,29 +426,67 @@ collectInputs inps tmp = do
 -- atomically to the final output directory for those Artifacts.
 -- Files and (sub)directories, as well as the directory itself, will
 -- be made read-only.
-createArtifacts :: Hash -> (FilePath -> Action ()) -> Action ()
-createArtifacts h act = do
+createArtifacts ::
+       Maybe SharedCache
+    -> Hash
+    -> [String] -- ^ Messages to print if cached
+    -> (FilePath -> Action ())
+    -> Action ()
+createArtifacts maybeSharedCache h messages act = do
     let destDir = hashDir h
+    exists <- liftIO $ Directory.doesDirectoryExist destDir
     -- Skip if the output directory already exists; we'll produce it atomically
     -- below.  This could happen if Shake's database was cleaned, or if the
     -- action stops before Shake registers it as complete, due to either a
     -- synchronous or asynchronous exception.
-    exists <- liftIO $ Directory.doesDirectoryExist destDir
     unless exists $ do
         tempDir <- createPierTempDirectory $ hashString h ++ "-result"
-        -- Run the given action.
-        act tempDir
+        case maybeSharedCache of
+            Nothing -> act tempDir
+            Just cache -> do
+                getFromSharedCache <- liftIO $ copyFromCache cache h tempDir
+                if getFromSharedCache
+                    then mapM_ (\m -> putNormal $ m ++ " (cached)") messages
+                    else do
+                        act tempDir
+                        liftIO $ copyToCache cache h tempDir
+
         liftIO $ do
             -- Move the created directory to its final location,
             -- with all the files and directories inside set to
             -- read-only.
+            -- Don't set permissions on symbolic links; they're ignored
+            -- on most systems (e.g., Linux).
+            let freeze RegularFile = freezePath
+                freeze DirectoryEnd = freezePath
+                freeze _ = const $ return ()
+            -- TODO: why is getRegularContents used?
+            -- Ah, to avoid the current directory.
             getRegularContents tempDir
-                >>= mapM_ (forFileRecursive_ freezePath . (tempDir </>))
+                >>= mapM_ (forFileRecursive_ freeze . (tempDir </>))
             createParentIfMissing destDir
             Directory.renameDirectory tempDir destDir
             -- Also set the directory itself to read-only, but wait
             -- until the last step since read-only files can't be moved.
             freezePath destDir
+
+-- TODO: consider using hard links for these copies, to save space
+-- TODO: make sure the directories are read-only
+copyFromCache :: SharedCache -> Hash -> FilePath -> IO Bool
+copyFromCache cache h tempDir = do
+    let globalDir = globalHashDir cache h
+    globalExists <- liftIO $ Directory.doesDirectoryExist globalDir
+    if globalExists
+        then copyDirectory globalDir tempDir >> return True
+        else return False
+
+copyToCache :: SharedCache -> Hash -> FilePath -> IO ()
+copyToCache cache h src = do
+    tempDir <- createPierTempDirectory $ hashString h ++ "-cache"
+    copyDirectory src tempDir
+    let dest = globalHashDir cache h
+    createParentIfMissing dest
+    Directory.renameDirectory tempDir dest
 
 -- Call a process inside the given directory and capture its stdout.
 -- TODO: more flexibility around the env vars
@@ -464,6 +531,7 @@ readProgCall dir p as cwd = do
                         , err
                         ]
 
+-- TODO: use forFileRecursive_
 linkShadow :: FilePath -> Artifact -> FilePath -> IO ()
 linkShadow dir a0 f0 = do
     createParentIfMissing (dir </> f0)
@@ -561,29 +629,9 @@ unfreezeArtifacts = forM_ [artifactDir, pierTempDirectory] $ \dir -> do
     exists <- Directory.doesDirectoryExist dir
     when exists $ forFileRecursive_ unfreeze dir
   where
-    unfreeze f = do
-        sym <- pathIsSymbolicLink f
-        unless sym $ getPermissions f >>= setPermissions f . setOwnerWritable True
-
--- TODO: don't loop on symlinks, and be more efficient?
-forFileRecursive_ :: (FilePath -> IO ()) -> FilePath -> IO ()
-forFileRecursive_ act f = do
-    isSymLink <- pathIsSymbolicLink f
-    unless isSymLink $ do
-        isDir <- Directory.doesDirectoryExist f
-        if not isDir
-            then act f
-            else do
-                getRegularContents f >>= mapM_ (forFileRecursive_ act . (f </>))
-                act f
-
-getRegularContents :: FilePath -> IO [FilePath]
-getRegularContents f =
-    filter (not . specialFile) <$> Directory.getDirectoryContents f
-  where
-    specialFile "." = True
-    specialFile ".." = True
-    specialFile _ = False
+    unfreeze DirectoryStart f =
+        getPermissions f >>= setPermissions f . setOwnerWritable True
+    unfreeze _ _ = return ()
 
 -- Symlink the artifact into the given destination directory.
 linkArtifact :: FilePath -> Artifact -> IO ()
@@ -647,12 +695,12 @@ type instance RuleResult WriteArtifactQ = Artifact
 writeArtifact :: FilePath -> String -> Action Artifact
 writeArtifact path contents = askPersistent $ WriteArtifactQ path contents
 
-writeArtifactRules :: Rules ()
-writeArtifactRules = addPersistent
+writeArtifactRules :: Maybe SharedCache -> Rules ()
+writeArtifactRules sharedCache = addPersistent
         $ \WriteArtifactQ {writePath = path, writeContents = contents} -> do
-    let h = makeHash . T.encodeUtf8 . T.pack
+    h <- makeHash . T.encodeUtf8 . T.pack
                 $ "writeArtifact: " ++ contents
-    createArtifacts h $ \tmpDir -> do
+    createArtifacts sharedCache h [] $ \tmpDir -> do
         let out = tmpDir </> path
         createParentIfMissing out
         liftIO $ writeFile out contents
