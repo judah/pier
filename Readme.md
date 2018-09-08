@@ -32,8 +32,8 @@ project, or alternately [pier itself](pier.yaml).
 ## Status
 Pier is still experimental.  It has been tested on small projects, but not yet used in anger.
 
-Pier is already able to build most the packages in Stackage (specifically, 90% of
-the more than 2600 packages in `lts-10.3`). There is a
+Pier is already able to build most the packages in Stackage (specifically, 93% of
+the more than 2300 packages in `lts-12.8`). There is a
 [list of open issues](https://github.com/judah/pier/issues?q=is%3Aissue+is%3Aopen+label%3A%22Build+All+The+Packages%22)
 to increase Pier's coverage.  (Notably, packages with [Custom Setup.hs scripts](https://github.com/judah/pier/issues/22)
 are not supported.)

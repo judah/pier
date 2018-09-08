@@ -2,7 +2,7 @@
 set -xueo pipefail
 
 IMAGE=snoyberg/stackage:nightly
-LTSPATH="$HOME/.pier/downloads/stackage/plan/lts-10.3.yaml"
+LTSPATH="$HOME/.pier/downloads/stackage/plan/lts-12.8.yaml"
 PACKAGES=stackage/packages.txt
 
 stack --docker --docker-image $IMAGE build pier -j 1
