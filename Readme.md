@@ -32,8 +32,8 @@ project, or alternately [pier itself](pier.yaml).
 ## Status
 Pier is still experimental.  It has been tested on small projects, but not yet used in anger.
 
-Pier is already able to build most the packages in Stackage (specifically, 90% of
-the more than 2600 packages in `lts-10.3`). There is a
+Pier is already able to build most the packages in Stackage (specifically, 93% of
+the more than 2300 packages in `lts-12.8`). There is a
 [list of open issues](https://github.com/judah/pier/issues?q=is%3Aissue+is%3Aopen+label%3A%22Build+All+The+Packages%22)
 to increase Pier's coverage.  (Notably, packages with [Custom Setup.hs scripts](https://github.com/judah/pier/issues/22)
 are not supported.)
@@ -115,6 +115,18 @@ This setting will make `pier` look in the `$PATH`
 for a binary named `ghc-VERSION`, where `VERSION` is the version specified in the
 resolver (for example: `ghc-8.2.2`).
 
+### ghc-options
+A list of command-line flags to pass to GHC when compiling packages.  For example:
+```
+ghc-options: [-O2, -Wall]
+```
+or:
+```
+ghc-options:
+- -O2
+- -Wall
+```
+
 # Using `pier`
 
 For general comnmand-line usage, pass the `--help` flag:
@@ -131,13 +143,12 @@ pier run --help
 | --- | --- | --- |
 | `--pier-yaml={PATH}` | Use that file for build configuration | `pier.yaml` |
 | `--jobs={N}`, `-j{N}` | Run with at most this much parallelism | The number of detected CPUs |
-| `-V` | Increase the verbosity level | |
+| `-V` | Increase the verbosity level. [Details](#verbosity) | |
 | `--shake-arg={ARG}` | Pass the argument directly to Shake | |
 | `--keep-going` | Keep going if there are errors | False; stop after the first error |
 | `--keep-temps` | Preserve temporary directories | False |
 | `--download-local` | Save downloads under the local `_pier` instead of `$HOME/.pier` | False |
-
-
+| `--shared-cache` | Share a cache of build artifacts between different workspaces, located inside `$HOME/.pier` | False |
 
 ### `pier build`
 
@@ -179,6 +190,18 @@ files, as described [here](#build-outputs)), so that future builds will start
 from scratch.  Note that this command will require Pier to reinstall a local
 copy of GHC unless `system-ghc: true` is set.
 
+### Verbosity
+The `-V` command-line flag will make Pier more verbose.  It may be chained to increase verbosity (for example: `-VV`, `-V -V`, `-VVV`).
+
+The verbose output includes (but is not necessarily limited to):
+
+- `-V`: Upon failure of an invocation of a command-line process (for example,
+  `ghc`), display the full invocation of that command including all command-line
+  flags and build inputs.
+- `-VV`: Display the full invocation of every command before running it.
+- `-VVV`: Also display internal Shake debug information.
+
+
 # Build Outputs
 
 `pier` saves most output files in a folder called `_pier/`, located in the
@@ -215,7 +238,7 @@ If necessary, `pier clean-all` will delete the `_pier` folder (and thus wipe out
 - Downloads Stackage's build plans from `github.com/fpco`, and uses them to get the version numbers for the packages in that plan and for GHC.
 - Downloads GHC releases from `github.com/commercialhaskell`, getting the exact download location from a file hosted by `github.com/stackage`.
 - Downloads individual Haskell packages directly from Hackage.
-- Uses the `Cabal` library to parse the `.cabal` file format for each package, and to generate CPP version macros (for example, `MIN_VERSION_{package}`).
+- Uses the `Cabal` library to parse the `.cabal` file format for each package.
 
 In particular, it does not:
 

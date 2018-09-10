@@ -50,6 +50,7 @@ data PierYaml = PierYaml
     , packages :: [FilePath]
     , extraDeps :: [PackageIdentifier]
     , systemGhc :: Bool
+    , yamlGhcOptions :: [String]
     } deriving (Show, Eq, Typeable, Generic)
 instance Hashable PierYaml
 instance Binary PierYaml
@@ -61,11 +62,13 @@ instance FromJSON PierYaml where
         pkgs <- o .:? "packages"
         ed <- o .:? "extra-deps"
         sysGhc <- o .:? "system-ghc"
+        opts <- o .:? "ghc-options"
         return PierYaml
             { resolver = r
             , packages = fromMaybe [] pkgs
             , extraDeps = fromMaybe [] ed
             , systemGhc = fromMaybe False sysGhc
+            , yamlGhcOptions = fromMaybe [] opts
             }
 
 data PierYamlQ = PierYamlQ
@@ -84,6 +87,7 @@ data Config = Config
     , configExtraDeps :: HM.HashMap PackageName Version
     , localPackages :: HM.HashMap PackageName (Artifact, Version)
     , configGhc :: InstalledGhc
+    , ghcOptions :: [String]
     } deriving Show
 
 -- TODO: cache?
@@ -107,6 +111,7 @@ askConfig = do
         , configExtraDeps = HM.fromList [ (packageName pkg, packageVersion pkg)
                                         | pkg <- extraDeps yaml
                                         ]
+        , ghcOptions = yamlGhcOptions yaml
         }
 
 data Resolved

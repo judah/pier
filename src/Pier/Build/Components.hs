@@ -110,7 +110,8 @@ buildLibrary (BuiltLibraryQ pkg) =
 
 getBuiltinLib :: BuiltinLibraryR -> Action TransitiveDeps
 getBuiltinLib (BuiltinLibraryR p) = do
-    ghc <- configGhc <$> askConfig
+    conf <- askConfig
+    let ghc = configGhc conf
     result <- runCommandStdout
                 $ ghcPkgProg ghc
                     ["describe" , display p]
@@ -170,6 +171,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                     (liftA2 (,) (output hiDir) (output dynLibFile))
                     $ message (display pkg ++ ": building library")
                     <> ghcCommand ghc deps confd tinfo
+                          (ghcOptions conf ++
                             [ "-this-unit-id", display pkg
                             , "-hidir", hiDir
                             , "-hisuf", "dyn_hi"
@@ -177,7 +179,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                             , "-odir", oDir
                             , "-shared", "-dynamic"
                             , "-o", dynLibFile
-                            ]
+                            ])
                 return $ Just (libHSName, lib, dynLib, hiDir')
     (pkgDb, libFiles) <- registerPackage ghc pkg lbi
                                 (targetCFlags tinfo) maybeLib
@@ -238,7 +240,8 @@ buildExecutableFromPkg confd exe = do
     let desc = confdDesc confd
     deps@(BuiltDeps _ transDeps)
         <- askBuiltDeps $ targetDepNamesOrAllDeps desc (buildInfo exe)
-    ghc <- configGhc <$> askConfig
+    conf <- askConfig
+    let ghc = configGhc conf
     let out = "exe" </> name
     tinfo <- getTargetInfo confd (buildInfo exe) (TargetBinary $ modulePath exe)
                 transDeps ghc
@@ -246,12 +249,13 @@ buildExecutableFromPkg confd exe = do
         $ message (display (package desc) ++ ": building executable "
                     ++ name)
         <> ghcCommand ghc deps confd tinfo
+              (ghcOptions conf ++
                 [ "-o", out
                 , "-hidir", "hi"
                 , "-odir", "o"
                 , "-dynamic"
                 , "-threaded"
-                ]
+                ])
     return BuiltExecutable
         { builtBinary = bin
         , builtExeDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
@@ -335,7 +339,6 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) confd tinfo args
     = inputs (transitiveDBs transDeps)
         <> inputs (transitiveLibFiles transDeps)
         <> inputList (targetSourceInputs tinfo ++ targetOtherInputs tinfo)
-        <> input (confdMacros confd)
         -- Embed extra-source-files two ways: as regular inputs, and shadowed
         -- directly into the working directory.
         -- They're needed as regular inputs so that, if they're headers, they
@@ -369,7 +372,6 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) confd tinfo args
         ++ map ("-I" ++) (targetIncludeDirs tinfo)
         ++ targetOptions tinfo
         ++ map ("-optP" ++) (cppFlags cflags)
-        ++ ["-optP-include", "-optP" ++ pathIn (confdMacros confd)]
         ++ ["-optc" ++ opt | opt <- ccFlags cflags]
         ++ ["-l" ++ libDep | libDep <- linkLibs cflags]
         ++ ["-optl" ++ f | f <- linkFlags cflags]
