@@ -9,7 +9,6 @@ import Data.List (nub)
 import Development.Shake
 import Distribution.Package
 import Distribution.PackageDescription
-import Distribution.Simple.Build.Macros (generatePackageVersionMacros)
 import Distribution.Text (display)
 
 import qualified Data.HashMap.Strict as HM
@@ -24,8 +23,6 @@ import Pier.Core.Artifact
 data ConfiguredPackage = ConfiguredPackage
     { confdDesc :: PackageDescription
     , confdSourceDir :: Artifact
-    , confdMacros :: Artifact
-        -- ^ Provides Cabal macros like VERSION_*
     , confdDataFiles :: Maybe Artifact
     , confdExtraSrcFiles  :: [FilePath] -- relative to source dir
     }
@@ -50,25 +47,12 @@ getConfiguredPackage p = do
     getConfigured :: Config -> Flags -> Artifact -> Action ConfiguredPackage
     getConfigured conf flags dir = do
         (desc, dir') <- configurePackage (plan conf) flags dir
-        macros <- genCabalMacros conf desc
         datas <- collectDataFiles (configGhc conf) desc dir'
         extras <- fmap (nub . concat)
                             . mapM (matchArtifactGlob dir')
                             . extraSrcFiles
                             $ desc
-        return $ ConfiguredPackage desc dir' macros datas extras
-
--- For compatibility with Cabal, we generate a single macros file for the
--- entire package, rather than separately for the library, executables, etc.
--- For example, `pandoc-1.19.2.1`'s `pandoc` executable references
--- `VERSION_texmath` in `pandoc.hs`, despite not directly depending on the
--- `texmath` package.
-genCabalMacros :: Config -> PackageDescription -> Action Artifact
-genCabalMacros conf =
-    writeArtifact "macros.h"
-        . generatePackageVersionMacros
-        . map (resolvedPackageId . resolvePackage conf)
-        . allDependencies
+        return $ ConfiguredPackage desc dir' datas extras
 
 targetDepNames :: BuildInfo -> [PackageName]
 targetDepNames bi = [n | Dependency n _ <- targetBuildDepends bi]

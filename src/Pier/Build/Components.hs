@@ -267,7 +267,6 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) confd tinfo args
     = inputs (transitiveDBs transDeps)
         <> inputs (transitiveLibFiles transDeps)
         <> inputList (targetSourceInputs tinfo ++ targetOtherInputs tinfo)
-        <> input (confdMacros confd)
         -- Embed extra-source-files two ways: as regular inputs, and shadowed
         -- directly into the working directory.
         -- They're needed as regular inputs so that, if they're headers, they
@@ -301,7 +300,6 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) confd tinfo args
         ++ map ("-I" ++) (targetIncludeDirs tinfo)
         ++ targetOptions tinfo
         ++ map ("-optP" ++) (cppFlags cflags)
-        ++ ["-optP-include", "-optP" ++ pathIn (confdMacros confd)]
         ++ ["-optc" ++ opt | opt <- ccFlags cflags]
         ++ ["-l" ++ libDep | libDep <- linkLibs cflags]
         ++ ["-optl" ++ f | f <- linkFlags cflags]
