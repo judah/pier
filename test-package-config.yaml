@@ -7,4 +7,3 @@ extra-deps:
 - hsndfile-0.8.0
 # Has old `Cabal-version` and an executable with no explicit build-depends:
 - hsx2hs-0.14.1.3
-- hashable-time-0.2.0.1
