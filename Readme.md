@@ -238,7 +238,7 @@ If necessary, `pier clean-all` will delete the `_pier` folder (and thus wipe out
 - Downloads Stackage's build plans from `github.com/fpco`, and uses them to get the version numbers for the packages in that plan and for GHC.
 - Downloads GHC releases from `github.com/commercialhaskell`, getting the exact download location from a file hosted by `github.com/stackage`.
 - Downloads individual Haskell packages directly from Hackage.
-- Uses the `Cabal` library to parse the `.cabal` file format for each package, and to generate CPP version macros (for example, `MIN_VERSION_{package}`).
+- Uses the `Cabal` library to parse the `.cabal` file format for each package.
 
 In particular, it does not:
 
