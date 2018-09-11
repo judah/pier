@@ -97,5 +97,5 @@ collectPlainDataFiles desc dir = do
     if null (dataFiles desc)
         then return Nothing
         else Just <$> do
-            files <- concat <$> mapM (matchArtifactGlob dir) (dataFiles desc)
+            files <- concat <$> mapM (matchArtifactGlob inDir) (dataFiles desc)
             groupFiles inDir . map (\x -> (x,x)) $ files
