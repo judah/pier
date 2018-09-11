@@ -2,7 +2,7 @@ module Pier.Build.ConfiguredPackage
     ( ConfiguredPackage(..)
     , getConfiguredPackage
     , targetDepNames
-    , allDependencies
+    , exeDepNames
     ) where
 
 import Data.List (nub)
@@ -10,6 +10,7 @@ import Development.Shake
 import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.Text (display)
+import Distribution.Version (mkVersion)
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
@@ -57,6 +58,15 @@ getConfiguredPackage p = do
 targetDepNames :: BuildInfo -> [PackageName]
 targetDepNames bi = [n | Dependency n _ <- targetBuildDepends bi]
 
+-- | In older versions of Cabal, executables could use packages that were only
+-- explicitly depended on in the library or in other executables.  Some existing
+-- packages still assume this behavior.
+exeDepNames :: PackageDescription -> BuildInfo -> [PackageName]
+exeDepNames desc bi
+    | specVersion desc >= mkVersion [1,8] = targetDepNames bi
+    | otherwise = maybe [] (const [packageName desc]) (library desc)
+                    ++ allDependencies desc
+
 allDependencies :: PackageDescription -> [PackageName]
 allDependencies desc = let
     allBis = [libBuildInfo l | Just l <- [library desc]]
@@ -87,5 +97,5 @@ collectPlainDataFiles desc dir = do
     if null (dataFiles desc)
         then return Nothing
         else Just <$> do
-            files <- concat <$> mapM (matchArtifactGlob dir) (dataFiles desc)
+            files <- concat <$> mapM (matchArtifactGlob inDir) (dataFiles desc)
             groupFiles inDir . map (\x -> (x,x)) $ files

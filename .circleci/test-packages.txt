@@ -9,6 +9,7 @@ lens
 network-multicast
 pandoc
 publicsuffix
+tzdata
 unix-time
 wreq
 xhtml
