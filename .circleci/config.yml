@@ -3,7 +3,7 @@ version: 2
 references:
     build-base: &build-base
       docker:
-        - image: judah/pier-ci:v2
+        - image: judah/pier-ci:v3
       steps:
         - checkout
         - restore_cache:
