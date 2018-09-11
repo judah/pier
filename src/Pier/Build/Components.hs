@@ -7,13 +7,12 @@ module Pier.Build.Components
     , askBuiltExecutable
     , askBuiltTestSuite
     , askBuiltTestSuites
-    , BuiltExecutable(..)
-    , BuiltTestSuite(..)
+    , BuiltBinary(..)
     )
     where
 
 import Control.Applicative (liftA2)
-import Control.Monad (filterM)
+import Control.Monad (filterM, (>=>))
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Development.Shake
@@ -33,7 +32,6 @@ import qualified Distribution.InstalledPackageInfo as IP
 import Pier.Build.Config
 import Pier.Build.ConfiguredPackage
 import Pier.Build.Executable
-import Pier.Build.TestSuite
 import Pier.Build.CFlags
 import Pier.Build.Stackage
 import Pier.Build.TargetInfo
@@ -203,51 +201,84 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
 
 newtype BuiltExecutablesQ = BuiltExecutablesQ PackageName
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
-type instance RuleResult BuiltExecutablesQ = Map.Map String BuiltExecutable
+type instance RuleResult BuiltExecutablesQ = [BuiltBinary]
 instance Show BuiltExecutablesQ where
     show (BuiltExecutablesQ p) = "Executables from " ++ display p
 
-askBuiltExecutables :: PackageName -> Action (Map.Map String BuiltExecutable)
+askBuiltExecutables :: PackageName -> Action [BuiltBinary]
 askBuiltExecutables = askPersistent . BuiltExecutablesQ
 
-buildExecutables :: BuiltExecutablesQ -> Action (Map.Map String BuiltExecutable)
+data BuiltTestSuiteQ = BuiltTestSuiteQ PackageName String
+    deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
+type instance RuleResult BuiltTestSuiteQ = BuiltBinary
+
+instance Show BuiltTestSuiteQ where
+    show (BuiltTestSuiteQ p s) = "TestSuite " ++ s ++ " from " ++ display p
+
+askBuiltTestSuite :: PackageName -> String -> Action BuiltBinary
+askBuiltTestSuite p e = askPersistent $ BuiltTestSuiteQ p e
+
+buildExecutables :: BuiltExecutablesQ -> Action [BuiltBinary]
 buildExecutables (BuiltExecutablesQ p) = getConfiguredPackage p >>= \case
-    Left _ -> return Map.empty
+    Left _ -> return []
     Right confd ->
-        fmap Map.fromList
-            . mapM (\e -> (display $ exeName e,)
-                                <$> buildExecutableFromPkg confd e)
+            mapM (buildBinaryFromPkg confd . exeSpec)
             . filter (buildable . buildInfo)
             $ executables (confdDesc confd)
 
 -- TODO: error if not buildable?
-buildExecutable :: BuiltExecutableQ -> Action BuiltExecutable
+buildExecutable :: BuiltExecutableQ -> Action BuiltBinary
 buildExecutable (BuiltExecutableQ p e) = getConfiguredPackage p >>= \case
     Left pid -> error $ "Built-in package " ++ display pid
                         ++ " has no executables"
     Right confd
         | Just exe <- find ((== e) . display . exeName) (executables $ confdDesc confd)
-            -> buildExecutableFromPkg confd exe
+            -> buildBinaryFromPkg confd (exeSpec exe)
         | otherwise -> error $ "Package " ++ display (packageId confd)
                             ++ " has no executable named " ++ e
 
-buildExecutableFromPkg
+data BinarySpec = BinarySpec
+    { binaryTypeName :: String
+    , binaryName :: String
+    , binaryPath :: FilePath
+    , binaryBuildInfo :: BuildInfo
+    }
+
+exeSpec :: Executable -> BinarySpec
+exeSpec e = BinarySpec
+                { binaryTypeName = "executable"
+                , binaryName = display $ exeName e
+                , binaryPath = modulePath e
+                , binaryBuildInfo = buildInfo e
+                }
+
+testSpec :: TestSuite -> Action BinarySpec
+testSpec t@TestSuite { testInterface = TestSuiteExeV10 _ path }
+    = return BinarySpec
+                { binaryTypeName = "test-suite"
+                , binaryName = display $ testName t
+                , binaryPath = path
+                , binaryBuildInfo = testBuildInfo t
+                }
+testSpec t = fail $ "Unknown test type " ++ show (testInterface t)
+                    ++ " for test " ++ display (testName t)
+
+buildBinaryFromPkg
     :: ConfiguredPackage
-    -> Executable
-    -> Action BuiltExecutable
-buildExecutableFromPkg confd exe = do
-    let name = display $ exeName exe
+    -> BinarySpec
+    -> Action BuiltBinary
+buildBinaryFromPkg confd bin = do
     let desc = confdDesc confd
     deps@(BuiltDeps _ transDeps)
-        <- askBuiltDeps $ targetDepNamesOrAllDeps desc (buildInfo exe)
+        <- askBuiltDeps $ targetDepNamesOrAllDeps desc (binaryBuildInfo bin)
     conf <- askConfig
     let ghc = configGhc conf
-    let out = "exe" </> name
-    tinfo <- getTargetInfo confd (buildInfo exe) (TargetBinary $ modulePath exe)
+    let out = binaryName bin
+    tinfo <- getTargetInfo confd (binaryBuildInfo bin) (TargetBinary $ binaryPath bin)
                 transDeps ghc
-    bin <- runCommand (output out)
-        $ message (display (package desc) ++ ": building executable "
-                    ++ name)
+    result <- runCommand (output out)
+        $ message (display (package desc) ++ ": building "
+                        ++ binaryTypeName bin ++ " " ++ binaryName bin)
         <> ghcCommand ghc deps confd tinfo
               (ghcOptions conf ++
                 [ "-o", out
@@ -256,77 +287,40 @@ buildExecutableFromPkg confd exe = do
                 , "-dynamic"
                 , "-threaded"
                 ])
-    return BuiltExecutable
-        { builtBinary = bin
-        , builtExeDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
+    return BuiltBinary
+        { builtBinary = result
+        , builtBinaryDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
                                 (confdDataFiles confd)
         }
 
 newtype BuiltTestSuitesQ = BuiltTestSuitesQ PackageName
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
-type instance RuleResult BuiltTestSuitesQ = Map.Map String BuiltTestSuite
+type instance RuleResult BuiltTestSuitesQ = [BuiltBinary]
 instance Show BuiltTestSuitesQ where
     show (BuiltTestSuitesQ p) = "Test suites from " ++ display p
 
-askBuiltTestSuites :: PackageName -> Action (Map.Map String BuiltTestSuite)
+askBuiltTestSuites :: PackageName -> Action [BuiltBinary]
 askBuiltTestSuites = askPersistent . BuiltTestSuitesQ
 
-buildTestSuites :: BuiltTestSuitesQ -> Action (Map.Map String BuiltTestSuite)
+buildTestSuites :: BuiltTestSuitesQ -> Action [BuiltBinary]
 buildTestSuites (BuiltTestSuitesQ p) = getConfiguredPackage p >>= \case
-    Left _ -> return Map.empty
+    Left _ -> return []
     Right confd ->
-        fmap Map.fromList
-            . mapM (\e -> (display $ testName e,)
-                                <$> buildTestSuiteFromPkg confd e)
+            mapM (testSpec >=> buildBinaryFromPkg confd)
             . filter (buildable . testBuildInfo)
             $ testSuites (confdDesc confd)
 
 -- TODO: error if not buildable?
-buildTestSuite :: BuiltTestSuiteQ -> Action BuiltTestSuite
+buildTestSuite :: BuiltTestSuiteQ -> Action BuiltBinary
 buildTestSuite (BuiltTestSuiteQ p s) = getConfiguredPackage p >>= \case
     Left pid -> error $ "Built-in package " ++ display pid
                         ++ " has no test suites"
     Right confd
         | Just suite <-
             find ((== s) . display . testName) (testSuites $ confdDesc confd)
-            -> buildTestSuiteFromPkg confd suite
+            -> testSpec suite >>= buildBinaryFromPkg confd
         | otherwise -> error $ "Package " ++ display (packageId confd)
                             ++ " has no test suite named " ++ s
-
-buildTestSuiteFromPkg
-    :: ConfiguredPackage
-    -> TestSuite
-    -> Action BuiltTestSuite
-buildTestSuiteFromPkg confd suite = do
-    let name = display $ testName suite
-    let desc = confdDesc confd
-    deps@(BuiltDeps _ transDeps)
-        <- askBuiltDeps $ targetDepNamesOrAllDeps desc (testBuildInfo suite)
-    ghc <- configGhc <$> askConfig
-    let out = "test-suite" </> name
-    tinfo <- getTargetInfo confd (testBuildInfo suite) (TargetBinary $ modulePath' suite)
-                transDeps ghc
-    bin <- runCommand (output out)
-        $ message (display (package desc) ++ ": building test-suite "
-                    ++ name)
-        <> ghcCommand ghc deps confd tinfo
-                [ "-o", out
-                , "-hidir", "hi"
-                , "-odir", "o"
-                , "-dynamic"
-                , "-threaded"
-                ]
-    return BuiltTestSuite
-        { builtTestSuiteBinary = bin
-        , builtTestSuiteDataFiles = foldr Set.insert (transitiveDataFiles transDeps)
-                                (confdDataFiles confd)
-        }
-    where
-        modulePath' x =
-            case testInterface x of
-                TestSuiteExeV10 _ path -> path
-                TestSuiteLibV09 _ _ -> error "Test suites of type detailed-0.9 are not supported"
-                TestSuiteUnsupported _ -> error "An unsupported test suite type."
 
 ghcCommand
     :: InstalledGhc

@@ -38,6 +38,8 @@ references:
         - run: $(stack exec which pier) build
         - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
         - run: $(stack exec which pier) run hlint src
+        - run: $(stack exec which pier) test split
+        - run: $(stack exec which pier) test split:test:split-tests
         - run:
             command: |
                 echo "system-ghc: true" >> example/pier.yaml
