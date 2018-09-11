@@ -590,7 +590,11 @@ stdoutOutput :: FilePath
 stdoutOutput = "_stdout"
 
 defaultEnv :: [(String, String)]
-defaultEnv = [("PATH", "/usr/bin:/bin")]
+defaultEnv =
+    [ ("PATH", "/usr/bin:/bin")
+    -- Set LANG to enable TemplateHaskell code reading UTF-8 files correctly.
+    , ("LANG", "en_US.UTF-8")
+    ]
 
 spliceTempDir :: FilePath -> String -> String
 spliceTempDir tmp = T.unpack . T.replace (T.pack "${TMPDIR}") (T.pack tmp) . T.pack
