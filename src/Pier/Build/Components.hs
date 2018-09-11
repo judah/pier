@@ -20,7 +20,6 @@ import Distribution.Package
 import Distribution.PackageDescription
 import Distribution.System (buildOS, OS(..))
 import Distribution.Text
-import Distribution.Version (mkVersion)
 import GHC.Generics hiding (packageName)
 
 import qualified Data.Map as Map
@@ -233,7 +232,7 @@ buildExecutableFromPkg confd exe = do
     let name = display $ exeName exe
     let desc = confdDesc confd
     deps@(BuiltDeps _ transDeps)
-        <- askBuiltDeps $ targetDepNamesOrAllDeps desc (buildInfo exe)
+        <- askBuiltDeps $ exeDepNames desc (buildInfo exe)
     conf <- askConfig
     let ghc = configGhc conf
     let out = "exe" </> name
@@ -404,13 +403,3 @@ collectInstallIncludes dir bi
         case existing of
             (d, _):_ -> return (d </> f, f)
             _ -> error $ "Couldn't locate install-include " ++ show f
-
--- | In older versions of Cabal, executables could use packages that were only
--- explicitly depended on in the library or in other executables.  Some existing
--- packages still assume this behavior.
-targetDepNamesOrAllDeps :: PackageDescription -> BuildInfo -> [PackageName]
-targetDepNamesOrAllDeps desc bi
-    | specVersion desc >= mkVersion [1,8] = targetDepNames bi
-    | otherwise = maybe [] (const [packageName desc]) (library desc)
-                    ++ allDependencies desc
-
