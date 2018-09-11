@@ -8,6 +8,7 @@ hsx2hs
 lens
 network-multicast
 pandoc
+tzdata
 unix-time
 wreq
 xhtml
