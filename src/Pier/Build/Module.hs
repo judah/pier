@@ -110,7 +110,7 @@ search ghc flags m srcDir
         let relOutput = toFilePath m <.> "hs"
         happy <- lift $ askBuiltExecutable (mkPackageName "happy") "happy"
         lift . runCommand (output relOutput)
-             $ progExe happy
+             $ progBinary happy
                      ["-agc", "-o", relOutput, pathIn yFile]
                 <> input yFile
 
@@ -136,7 +136,7 @@ search ghc flags m srcDir
         -- TODO: mkPackageName doesn't exist in older ones
         alex <- lift $ askBuiltExecutable (mkPackageName "alex") "alex"
         lift . runCommand (output relOutput)
-            $ progExe alex
+            $ progBinary alex
                      ["-g", "-o", relOutput, pathIn xFile]
                <> input xFile
     genC2hs = do
@@ -147,7 +147,7 @@ search ghc flags m srcDir
         lift . runCommand (output relOutput)
              $ input chsFile
             <> inputs (cIncludeDirs flags)
-            <> progExe c2hs
+            <> progBinary c2hs
                     (["-o", relOutput, pathIn chsFile]
                     ++ ["--include=" ++ pathIn f | f <- Set.toList (cIncludeDirs flags)]
                     ++ ["--cppopts=" ++ f | f <- ccFlags flags ++ cppFlags flags

@@ -31,7 +31,6 @@ data CommandOpt
     | CleanAll
     | Build [(PackageName, Target)]
     | Run Sandboxed (PackageName, Target) [String]
-    | Test Sandboxed (PackageName, Target)
     | Which (PackageName, Target)
 
 data Sandboxed = Sandbox | NoSandbox
@@ -150,7 +149,6 @@ parseCommand = subparser $ mconcat
     , make "clean-all" cleanAllCommand "Clean project & dependencies"
     , make "build" buildCommand "Build project"
     , make "run" runCommand "Run executable"
-    , make "test" testCommand "Run test suites"
     , make "which" whichCommand "Build executable and print its location"
     ]
   where
@@ -171,9 +169,6 @@ buildCommand = Build <$> many parseTarget
 runCommand :: Parser CommandOpt
 runCommand = Run <$> parseSandboxed <*> parseTarget
                  <*> many (strArgument (metavar "ARGUMENT"))
-
-testCommand :: Parser CommandOpt
-testCommand = Test <$> parseSandboxed <*> parseTarget
 
 whichCommand :: Parser CommandOpt
 whichCommand = Which <$> parseTarget
@@ -227,19 +222,7 @@ runWithOptions next ht (Run sandbox (pkg, target) args) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
-        liftIO $ writeIORef next $ runExe ht sandbox exe args
-runWithOptions next ht (Test sandbox (pkg, TargetAllTestSuites)) = do
-    cleaning False
-    action $ do
-        suites <- askBuiltTestSuites pkg
-        sequence_
-            $ liftIO . writeIORef next . runTestSuite ht sandbox
-            <$> suites
-runWithOptions next ht (Test sandbox (pkg, target)) = do
-    cleaning False
-    action $ do
-        suite <- buildTestSuiteTarget pkg target
-        liftIO $ writeIORef next $ runTestSuite ht sandbox suite
+        liftIO $ writeIORef next $ runBin ht sandbox exe args
 runWithOptions _ _ (Which (pkg, target)) = do
     cleaning False
     action $ do
@@ -247,44 +230,22 @@ runWithOptions _ _ (Which (pkg, target)) = do
         -- TODO: nicer output format.
         putNormal $ pathIn (builtBinary exe)
 
-runExe :: HandleTemps -> Sandboxed -> BuiltExecutable -> [String] -> IO ()
-runExe ht sandbox exe args =
+runBin :: HandleTemps -> Sandboxed -> BuiltBinary -> [String] -> IO ()
+runBin ht sandbox exe args =
     case sandbox of
-        Sandbox -> callArtifact ht (builtExeDataFiles exe)
+        Sandbox -> callArtifact ht (builtBinaryDataFiles exe)
                         (builtBinary exe) args
         NoSandbox -> cmd_ (WithStderr False)
                         (pathIn $ builtBinary exe) args
 
-runTestSuite :: HandleTemps -> Sandboxed -> BuiltTestSuite -> IO ()
-runTestSuite ht sandbox suite = do
-    let noArgs :: [String] = []
-    case sandbox of
-        Sandbox -> callArtifact ht (builtTestSuiteDataFiles suite)
-                        (builtTestSuiteBinary suite) noArgs
-        NoSandbox -> cmd_ (WithStderr False)
-                        (pathIn $ builtTestSuiteBinary suite) noArgs
-
-buildExeTarget :: PackageName -> Target -> Action BuiltExecutable
-buildExeTarget pkg target = do
-    name <- case target of
-                TargetExe name -> return name
-                TargetAll -> return $ display pkg
-                TargetAllExes -> return $ display pkg
-                TargetLib -> error "command can't be used with a \"lib\" target"
-                TargetAllTestSuites -> error "command can't be used with any \"test-suite\" targets"
-                TargetTestSuite _ -> error "command can't be used with a \"test-suite\" target"
-    askBuiltExecutable pkg name
-
-buildTestSuiteTarget :: PackageName -> Target -> Action BuiltTestSuite
-buildTestSuiteTarget pkg target = do
-    name <- case target of
-                TargetExe _ -> error "command can't be used with an \"exe\" target"
-                TargetAll -> return $ display pkg
-                TargetAllExes -> error "command can't be used with any \"exe\" targets"
-                TargetLib -> error "command can't be used with a \"lib\" target"
-                TargetAllTestSuites -> return ""
-                TargetTestSuite name -> return name
-    askBuiltTestSuite pkg name
+buildExeTarget :: PackageName -> Target -> Action BuiltBinary
+buildExeTarget pkg target = case target of
+    TargetExe name -> askBuiltExecutable pkg name
+    TargetAll -> askBuiltExecutable pkg $ display pkg
+    TargetAllExes -> askBuiltExecutable pkg $ display pkg
+    TargetLib -> error "command can't be used with a \"lib\" target"
+    TargetAllTests -> error "command can't be used with multiple \"test\" targets"
+    TargetTest name -> askBuiltTestSuite pkg name
 
 main :: IO ()
 main = do
@@ -326,8 +287,8 @@ data Target
     | TargetLib
     | TargetAllExes
     | TargetExe String
-    | TargetAllTestSuites
-    | TargetTestSuite String
+    | TargetAllTests
+    | TargetTest String
     deriving Show
 
 showTarget :: PackageName -> Target -> String
@@ -336,8 +297,8 @@ showTarget pkg t = display pkg ++ case t of
                 TargetLib -> ":lib"
                 TargetAllExes -> ":exe"
                 TargetExe e -> ":exe:" ++ e
-                TargetAllTestSuites -> ":test-suite"
-                TargetTestSuite s -> ":test-suite:" ++ s
+                TargetAllTests -> ":test-suite"
+                TargetTest s -> ":test-suite:" ++ s
 
 parseTarget :: Parser (PackageName, Target)
 parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
@@ -348,8 +309,8 @@ parseTarget = argument (eitherReader readTarget) (metavar "TARGET")
         [n, "lib"] -> (, TargetLib) <$> readPackageName n
         [n, "exe"] -> (, TargetAllExes) <$> readPackageName n
         [n, "exe", e] -> (, TargetExe e) <$> readPackageName n
-        [n, "test-suite"] -> (, TargetAllTestSuites) <$> readPackageName n
-        [n, "test-suite", e] -> (, TargetTestSuite e) <$> readPackageName n
+        [n, "test"] -> (, TargetAllTests) <$> readPackageName n
+        [n, "test", e] -> (, TargetTest e) <$> readPackageName n
         _ -> Left $ "Error parsing target " ++ show s
     readPackageName n = case simpleParse n of
         Just p -> return p
@@ -360,5 +321,5 @@ buildTarget n TargetAll = void $ askMaybeBuiltLibrary n >> askBuiltExecutables n
 buildTarget n TargetLib = void $ askBuiltLibrary n
 buildTarget n TargetAllExes = void $ askBuiltExecutables n
 buildTarget n (TargetExe e) = void $ askBuiltExecutable n e
-buildTarget n TargetAllTestSuites = void $ askBuiltTestSuites n
-buildTarget n (TargetTestSuite s) = void $ askBuiltTestSuite n s
+buildTarget n TargetAllTests = void $ askBuiltTestSuites n
+buildTarget n (TargetTest s) = void $ askBuiltTestSuite n s
