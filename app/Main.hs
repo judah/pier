@@ -265,7 +265,7 @@ buildTestTargets pkg target = case target of
     TargetExe _ -> error "command can't be used with an \"exe\" target"
     TargetAll -> askBuiltTestSuites pkg
     TargetAllTests -> askBuiltTestSuites pkg
-    TargetTest name -> (\x -> [x]) <$> askBuiltTestSuite pkg name
+    TargetTest name -> (: []) <$> askBuiltTestSuite pkg name
     TargetAllExes -> error "command can't be used with \"exe\" targets"
     TargetLib -> error "command can't be used with \"lib\" targets"
 
