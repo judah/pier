@@ -36,8 +36,8 @@ references:
                   --pier-yaml=test-package-config.yaml \
                   $(cat .circleci/test-packages.txt)
         - run: $(stack exec which pier) build -j4
-        - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/src
-        - run: $(stack exec which pier) run hlint src
+        - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/pier/src
+        - run: $(stack exec which pier) run hlint pier/src
         - run: $(stack exec which pier) test split
         - run: $(stack exec which pier) test split:test:split-tests
         - run:

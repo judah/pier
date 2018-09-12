@@ -1,0 +1,11 @@
+- BangPatterns
+- DeriveGeneric
+- FlexibleContexts
+- LambdaCase
+- MultiWayIf
+- NondecreasingIndentation
+- ScopedTypeVariables
+- StandaloneDeriving
+- TupleSections
+- TypeFamilies
+- TypeSynonymInstances
