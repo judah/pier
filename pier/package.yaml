@@ -1,5 +1,5 @@
 name: pier
-version: 0.1.0.0
+version: 0.2.0.0
 license: BSD3
 maintainer: judah.jacobson@gmail.com
 synopsis: Yet another Haskell build system.
@@ -9,47 +9,6 @@ description: >
 category: Development
 github: judah/pier
 
-dependencies:
-  - base >= 4.11.0
-  - directory >= 1.3.1
-  - Cabal >= 2.2.0.0
-  - shake
-  - unordered-containers
-
-default-extensions:
-  - BangPatterns
-  - DeriveGeneric
-  - FlexibleContexts
-  - LambdaCase
-  - MultiWayIf
-  - NondecreasingIndentation
-  - ScopedTypeVariables
-  - StandaloneDeriving
-  - TupleSections
-  - TypeFamilies
-  - TypeSynonymInstances
-
-library:
-  source-dirs: 'src'
-  dependencies:
-    - aeson
-    - base64-bytestring
-    - binary
-    - binary-orphans
-    - bytestring
-    - containers
-    - cryptohash-sha256
-    - hashable
-    - http-client
-    - http-client-tls
-    - http-types
-    - process
-    - temporary
-    - text
-    - transformers
-    - unix
-    - yaml
-
 # Work around haskell/cabal#4739
 when:
   - condition: os(darwin)
@@ -57,10 +16,44 @@ when:
 
 executables:
   pier:
-    source-dirs: 'app'
+    source-dirs: 'src'
     main: Main.hs
     ghc-options: -threaded -with-rtsopts=-I0
     dependencies:
+      - Cabal >= 2.2.0.0
+      - aeson
+      - base >= 4.11.0
+      - base64-bytestring
+      - binary
+      - binary-orphans
+      - bytestring
+      - containers
+      - cryptohash-sha256
+      - directory >= 1.3.1
+      - hashable
+      - http-client
+      - http-client-tls
+      - http-types
       - optparse-applicative
+      - pier-core == 0.2.*
+      - process
+      - shake == 0.16.*
       - split
-      - pier
+      - temporary
+      - text
+      - transformers
+      - unix
+      - unordered-containers
+      - yaml
+    default-extensions:
+      - BangPatterns
+      - DeriveGeneric
+      - FlexibleContexts
+      - LambdaCase
+      - MultiWayIf
+      - NondecreasingIndentation
+      - ScopedTypeVariables
+      - StandaloneDeriving
+      - TupleSections
+      - TypeFamilies
+      - TypeSynonymInstances

@@ -5,6 +5,7 @@ nix:
 
 packages:
   - pier
+  - pier-core
 
 ghc-options:
   "$locals": -Wall -Werror
