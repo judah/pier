@@ -1,0 +1,10 @@
+- package:
+  - name: pier-core
+  - section:
+    - name: library
+    - message:
+      - name: Weeds exported
+      - module:
+        - name: Pier.Core.Directory
+        - identifier: SymbolicLink
+
