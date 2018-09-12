@@ -2,10 +2,18 @@ name: pier-core
 version: 0.2.0.0
 license: BSD3
 maintainer: judah.jacobson@gmail.com
-synopsis: Yet another Haskell build system.
-description: >
-    A build system for Haskell projects, built on top of
-    [shake](http://shakebuild.com).
+synopsis: A library for writing forwards-declared build systems in haskell.
+description: |
+    A library for writing build systems in Haskell, built on top of
+    <http://shakebuild.com shake>.
+
+    Pier provides a generic approach to building and caching file outputs.
+    It enables build actions to be written in a "forwards" style, which
+    generally leads to simpler logic than backwards-defined build systems
+    such as make or (normal) Shake, where each step of the build logic must
+    be written as a new build rule.
+
+    For more details, see "Pier.Core.Artifact".
 category: Development
 github: judah/pier
 
