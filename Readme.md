@@ -168,6 +168,7 @@ pier run --help
 | Command | Result |
 | --- | --- |
 | `pier run {PACKAGE}:exe:{NAME}` | A specific executable from the given package. |
+| `pier run {PACKAGE}:test:{NAME}` | A specific test-suite from the given package. |
 | `pier run {NAME}` | Equivalent to `pier run {NAME}:exe:{NAME}`;<br>an executable from a package of the same name. |
 
 For example, `pier run foo` is equivalent to `pier run foo:exe:foo`.  Note that
@@ -177,6 +178,15 @@ run a binary named `foo` from *any* previously built package.
 By default, the executable will run in the same directory where `pier.yaml` is located.  To run in a temporary, hermetic directory, use `pier run --sandbox`.
 
 In case of ambiguity, `--` can be used to separate arguments of `pier` from arguments of the target.
+
+### `pier test`
+`pier test {TARGETS}` builds and tests one or more Cabal `test-suites` from the project and/or its dependencies.  There are a few different ways to specify the targets:
+
+| Command | Targets |
+| --- | --- |
+| `pier test` | All the test-suites for every entry in `packages`. |
+| `pier test {PACKAGE}` | All the test-suites for a specific package.<br>For example: `text` or `pier`.  `{PACKAGE}` can be a local package,<br>one from the LTS, or one specified in `extra-deps`. |
+| `pier test {PACKAGE}:test:{NAME}` | A specific test-suite in the given package. |
 
 ### `pier which`
 `pier which {TARGET}` builds the given executable target and then prints its location.  See the documentation of `pier run` for details on the syntax of `{TARGET}`.
