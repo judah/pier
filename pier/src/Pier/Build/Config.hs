@@ -6,7 +6,6 @@ module Pier.Build.Config
     , Config(..)
     , Resolved(..)
     , resolvePackage
-    , resolvedPackageId
     ) where
 
 import Control.Exception (throw)
@@ -139,8 +138,3 @@ resolvePackage conf n
                 = Hackage (PackageIdentifier n $ planPackageVersion p)
                           (planPackageFlags p)
     | otherwise = error $ "Couldn't find package " ++ show (display n)
-
-resolvedPackageId :: Resolved -> PackageIdentifier
-resolvedPackageId (Builtin p) = p
-resolvedPackageId (Hackage p _) = p
-resolvedPackageId (Local _ p) = p

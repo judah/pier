@@ -44,9 +44,7 @@ library:
     - process
     - temporary
     - text
-    - transformers
     - unix
-    - yaml
   other-modules:
     - Pier.Core.Directory
     - Pier.Core.HashableSet
