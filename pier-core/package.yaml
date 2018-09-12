@@ -40,15 +40,4 @@ library:
   other-modules:
     - Pier.Core.Directory
     - Pier.Core.HashableSet
-  default-extensions:
-    - BangPatterns
-    - DeriveGeneric
-    - FlexibleContexts
-    - LambdaCase
-    - MultiWayIf
-    - NondecreasingIndentation
-    - ScopedTypeVariables
-    - StandaloneDeriving
-    - TupleSections
-    - TypeFamilies
-    - TypeSynonymInstances
+  default-extensions: !include ../common-extensions.yaml

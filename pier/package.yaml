@@ -36,15 +36,4 @@ executables:
       - transformers
       - unordered-containers
       - yaml
-    default-extensions:
-      - BangPatterns
-      - DeriveGeneric
-      - FlexibleContexts
-      - LambdaCase
-      - MultiWayIf
-      - NondecreasingIndentation
-      - ScopedTypeVariables
-      - StandaloneDeriving
-      - TupleSections
-      - TypeFamilies
-      - TypeSynonymInstances
+    default-extensions: !include "../common-extensions.yaml"
