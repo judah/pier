@@ -272,7 +272,7 @@ buildBinaryFromPkg confd bin = do
         <- askBuiltDeps $ exeDepNames desc (binaryBuildInfo bin)
     conf <- askConfig
     let ghc = configGhc conf
-    let out = binaryName bin
+    let out = "bin" </> binaryName bin
     tinfo <- getTargetInfo confd (binaryBuildInfo bin) (TargetBinary $ binaryPath bin)
                 transDeps ghc
     result <- runCommand (output out)
