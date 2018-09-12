@@ -104,6 +104,8 @@ flattenToDefaultFlags plan planFlags gdesc = let
         { library = resolve plan flags <$> condLibrary gdesc
         , executables = map (\(n, e) -> (resolve plan flags e) { exeName = n })
                             $ condExecutables gdesc
+        , testSuites = map (\(n, s) -> (resolve plan flags s) { testName = n })
+                            $ condTestSuites gdesc
         }
 
 resolve
