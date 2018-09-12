@@ -32,10 +32,8 @@ default-extensions:
 library:
   source-dirs: 'src'
   dependencies:
-    - aeson
     - base64-bytestring
     - binary
-    - binary-orphans
     - bytestring
     - containers
     - cryptohash-sha256
