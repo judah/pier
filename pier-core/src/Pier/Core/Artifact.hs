@@ -103,16 +103,16 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.Encoding.Error as T hiding (replace)
 
 import Pier.Core.Directory
+import Pier.Core.HashableSet
 import Pier.Core.Persistent
 import Pier.Core.Run
-import Pier.Orphans ()
 
 -- | A hermetic build step.  Consists of a sequence of calls to 'message',
 -- 'prog'/'progA'/'progTemp', and/or 'shadow', which may be combined using '<>'/'mappend'.
 -- Also specifies the input 'Artifacts' that are used by those commands.
 data Command = Command
     { _commandProgs :: [Prog]
-    , commandInputs :: Set Artifact
+    , commandInputs :: HashableSet Artifact
     }
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
 
@@ -136,27 +136,28 @@ data Prog
 
 instance Monoid Command where
     Command ps is `mappend` Command ps' is' = Command (ps ++ ps') (is <> is')
-    mempty = Command [] Set.empty
+    mempty = Command [] mempty
 
 instance Semigroup Command where
     (<>) = mappend
 
 -- | Run an external command-line program with the given arguments.
 prog :: String -> [String] -> Command
-prog p as = Command [ProgCall (CallEnv p) as "."] Set.empty
+prog p as = Command [ProgCall (CallEnv p) as "."] mempty
 
 -- | Run an artifact as an command-line program with the given arguments.
 progA :: Artifact -> [String] -> Command
-progA p as = Command [ProgCall (CallArtifact p) as "."] (Set.singleton p)
+progA p as = Command [ProgCall (CallArtifact p) as "."]
+                $ HashableSet $ Set.singleton p
 
 -- | Run a command-line program with the given arguments, where the program
 -- was created by a previous program.
 progTemp :: FilePath -> [String] -> Command
-progTemp p as = Command [ProgCall (CallTemp p) as "."] Set.empty
+progTemp p as = Command [ProgCall (CallTemp p) as "."] mempty
 
 -- | Prints a status message for the user when this command runs.
 message :: String -> Command
-message s = Command [Message s] Set.empty
+message s = Command [Message s] mempty
 
 -- | Runs a command within the given (relative) directory.
 withCwd :: FilePath -> Command -> Command
@@ -180,7 +181,7 @@ inputList = inputs . Set.fromList
 -- | Specify that a set of 'Artifact's should be made available to program calls within this
 -- 'Command'.
 inputs :: Set Artifact -> Command
-inputs = Command []
+inputs = Command [] . HashableSet
 
 -- | Make a "shadow" copy of the given input artifact's by create a symlink of
 -- this artifact (if it is a file) or of each sub-file (transitively, if it is
@@ -192,7 +193,7 @@ shadow :: Artifact -> FilePath -> Command
 shadow a f
     | isAbsolute f = error $ "shadowArtifact: need relative destination, found "
                             ++ show f
-    | otherwise = Command [Shadow a f] Set.empty
+    | otherwise = Command [Shadow a f] mempty
 
 -- | The output of a given command.
 --
@@ -343,7 +344,9 @@ type instance RuleResult CommandQ = Hash
 -- "..", etc.
 commandHash :: CommandQ -> Action Hash
 commandHash cmdQ = do
-    let externalFiles = [f | Artifact External f <- Set.toList $ commandInputs
+    let externalFiles = [f | Artifact External f <- Set.toList
+                                                        . unHashableSet
+                                                        . commandInputs
                                                         $ commandQCmd cmdQ
                            , isRelative f
                         ]
@@ -379,7 +382,7 @@ commandRules sharedCache ht = addPersistent $ \cmdQ@(CommandQ (Command progs inp
       withPierTempDirectoryAction ht (hashString h) $ \tmpDir -> do
         let tmpPathOut = (tmpDir </>)
 
-        liftIO $ collectInputs inps tmpDir
+        liftIO $ collectInputs (unHashableSet inps) tmpDir
         mapM_ (createParentIfMissing . tmpPathOut) outs
 
         -- Run the command, and write its stdout to a special file.
@@ -587,7 +590,7 @@ showProg (ProgCall call args cwd) =
 showCommand :: CommandQ -> String
 showCommand (CommandQ (Command progs inps) outputs) = unlines $
     map showOutput outputs
-    ++ map showInput (Set.toList inps)
+    ++ map showInput (Set.toList $ unHashableSet inps)
     ++ map showProg progs
   where
     showOutput a = "Output: " ++ a

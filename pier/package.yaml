@@ -1,0 +1,39 @@
+name: pier
+version: 0.2.0.0
+license: BSD3
+maintainer: judah.jacobson@gmail.com
+synopsis: Yet another Haskell build system.
+description: >
+    A build system for Haskell projects, built on top of
+    [shake](http://shakebuild.com).
+category: Development
+github: judah/pier
+
+# Work around haskell/cabal#4739
+when:
+  - condition: os(darwin)
+    ghc-options: -optP-Wno-nonportable-include-path
+
+executables:
+  pier:
+    source-dirs: 'src'
+    main: Main.hs
+    ghc-options: -threaded -with-rtsopts=-I0
+    dependencies:
+      - Cabal >= 2.2.0.0
+      - aeson
+      - base >= 4.11.0
+      - binary
+      - binary-orphans
+      - containers
+      - directory >= 1.3.1
+      - hashable
+      - optparse-applicative
+      - pier-core == 0.2.*
+      - shake == 0.16.*
+      - split
+      - text
+      - transformers
+      - unordered-containers
+      - yaml
+    default-extensions: !include "../common-extensions.yaml"

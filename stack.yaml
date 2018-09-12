@@ -4,7 +4,8 @@ nix:
   packages: [zlib]
 
 packages:
-  - '.'
+  - pier
+  - pier-core
 
 ghc-options:
   "$locals": -Wall -Werror

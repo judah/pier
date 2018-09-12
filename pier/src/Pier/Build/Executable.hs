@@ -15,6 +15,7 @@ import GHC.Generics (Generic(..))
 
 import Pier.Core.Artifact
 import Pier.Core.Persistent
+import Pier.Orphans ()
 
 data BuiltBinary = BuiltBinary
     { builtBinary :: Artifact

@@ -1,5 +1,6 @@
 resolver: lts-12.8
 
 packages:
-  - '.'
+  - 'pier'
+  - 'pier-core'
   - 'example'

@@ -7,7 +7,6 @@ module Pier.Build.Stackage
     , installGhcRules
     , InstalledGhc(..)
     , GhcDistro(..)
-    , ghcArtifacts
     , ghcProg
     , ghcPkgProg
     , hsc2hsProg
@@ -140,9 +139,6 @@ globalPackageDb ghc = ghcLibRoot ghc /> packageConfD
 
 packageConfD :: String
 packageConfD = "package.conf.d"
-
-ghcArtifacts :: InstalledGhc -> Set.Set Artifact
-ghcArtifacts g = Set.fromList [ghcLibRoot g]
 
 askInstalledGhc :: BuildPlan -> GhcDistro -> Action InstalledGhc
 askInstalledGhc plan distro
