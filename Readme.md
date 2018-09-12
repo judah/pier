@@ -190,6 +190,15 @@ files, as described [here](#build-outputs)), so that future builds will start
 from scratch.  Note that this command will require Pier to reinstall a local
 copy of GHC unless `system-ghc: true` is set.
 
+### `pier setup`
+`pier setup` downloads and configures the base build prerequisites.  This includes:
+- Downloading and preparing a local installation of GHC
+- Downloading and parsing the Stackage build plan
+- Parsing the local `pier.yaml` and `*.cabal` files.
+
+In general, it should not be necessary to run `pier setup` explicitly, since those
+steps are also performed automatically for other commands like `build`, `run` and `test`.
+
 ### Verbosity
 The `-V` command-line flag will make Pier more verbose.  It may be chained to increase verbosity (for example: `-VV`, `-V -V`, `-VVV`).
 

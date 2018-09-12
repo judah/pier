@@ -29,6 +29,7 @@ import Pier.Core.Run
 data CommandOpt
     = Clean
     | CleanAll
+    | Setup
     | Build [(PackageName, Target)]
     | Run Sandboxed (PackageName, Target) [String]
     | Which (PackageName, Target)
@@ -82,25 +83,28 @@ parseCommonOptions h = CommonOptions <$> parsePierYaml
 
     parseHandleTemps :: Parser (Last HandleTemps)
     parseHandleTemps =
-        Last . Just <$>
-            flag RemoveTemps KeepTemps
+        Last <$>
+            flag Nothing (Just KeepTemps)
                 (long "keep-temps"
                 <> help "Don't remove temporary directories")
 
+    -- OK, this doesn't work!  Nice catch.
+    -- Last isn't what we want I guess.
     parseDownloadLocation :: Parser (Last DownloadLocation)
     parseDownloadLocation =
-        Last . Just <$>
-            flag DownloadToHome DownloadLocal
+        Last <$>
+            flag Nothing (Just DownloadLocal)
                 (long "download-local"
                 <> help "Store downloads in the local _pier directory")
 
     parseSharedCache :: Parser (Last UseSharedCache)
-    parseSharedCache = Last . Just <$>
-                        flag DontUseSharedCache UseSharedCache
+    parseSharedCache = Last <$>
+                        flag Nothing (Just UseSharedCache)
                             ( long "shared-cache"
                             <> help "Use a shared cache at ~/.pier/artifact")
 
 data UseSharedCache = UseSharedCache | DontUseSharedCache
+    deriving Show
 
 data Hidden = Hidden | Shown
 
@@ -147,6 +151,7 @@ parseCommand :: Parser (CommonOptions, CommandOpt)
 parseCommand = subparser $ mconcat
     [ make "clean" cleanCommand "Clean project"
     , make "clean-all" cleanAllCommand "Clean project & dependencies"
+    , make "setup" setupCommand "Only configure the compiler and build plan"
     , make "build" buildCommand "Build project"
     , make "run" runCommand "Run executable"
     , make "which" whichCommand "Build executable and print its location"
@@ -162,6 +167,9 @@ cleanCommand = pure Clean
 
 cleanAllCommand :: Parser CommandOpt
 cleanAllCommand = pure CleanAll
+
+setupCommand :: Parser CommandOpt
+setupCommand = pure Setup
 
 buildCommand :: Parser CommandOpt
 buildCommand = Build <$> many parseTarget
@@ -200,6 +208,9 @@ runWithOptions _ _ CleanAll = do
     liftIO unfreezeArtifacts
     cleaning True
     cleanAll
+runWithOptions _ _ Setup = do
+    cleaning False
+    action $ void askConfig
 runWithOptions _ _ (Build targets) = do
     cleaning False
     action $ do

@@ -2,17 +2,23 @@
 set -xueo pipefail
 
 IMAGE=snoyberg/stackage:nightly
-LTSPATH="$HOME/.pier/downloads/stackage/plan/lts-12.8.yaml"
+PLAN=lts-12.8
+LTSPATH=stackage/_pier/downloads/stackage/plan/$PLAN.yaml
+cat >stackage/pier.yaml <<EOF
+resolver: $PLAN
+system-ghc: true
+EOF
 PACKAGES=stackage/packages.txt
+PIER_ARGS="--download-local -j 2 --pier-yaml=stackage/pier.yaml"
+STACK="time stack --docker --docker-image $IMAGE"
+PIER="${STACK} exec -- pier ${PIER_ARGS}"
 
-stack --docker --docker-image $IMAGE build pier -j 1
-stack --docker --docker-image $IMAGE runghc stackage/list-packages.hs -- $LTSPATH \
+$STACK build pier -j 1
+
+$PIER clean
+$PIER setup --keep-temps
+
+$STACK runghc stackage/list-packages.hs -- $LTSPATH \
     > $PACKAGES
-time stack --docker --docker-image $IMAGE \
-    exec -- pier build \
-    --download-local \
-    --pier-yaml=stackage/pier.yaml \
-    --keep-going \
-    -j 2 \
-    -V \
-    $(cat $PACKAGES)
+
+${PIER} build --keep-going -V $(cat $PACKAGES)
