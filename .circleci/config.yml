@@ -37,7 +37,7 @@ references:
                   $(cat .circleci/test-packages.txt)
         - run: $(stack exec which pier) build
         - run: $(stack exec which pier) run -j4 hlint --sandbox $PWD/pier/src
-        - run: $(stack exec which pier) run hlint src
+        - run: $(stack exec which pier) run hlint pier/src
         - run: $(stack exec which pier) test split
         - run: $(stack exec which pier) test split:test:split-tests
         - run:
