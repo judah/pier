@@ -100,6 +100,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.Encoding.Error as T hiding (replace)
 
 import Pier.Core.Directory
 import Pier.Core.Persistent
@@ -516,19 +517,20 @@ readProgCall dir p as cwd = do
                     , EchoStderr False
                     ]
                     p' (map (spliceTempDir dir) as)
+    let errStr = T.unpack . T.decodeUtf8With T.lenientDecode $ err
     case ret of
         ExitSuccess -> return out
         ExitFailure ec -> do
             v <- shakeVerbosity <$> getShakeOptions
             fail $ if v < Loud
                 -- TODO: remove trailing newline
-                then err
+                then errStr
                 else unlines
                         [ showProg (ProgCall p as cwd)
                         , "Working dir: " ++ translate (dir </> cwd)
                         , "Exit code: " ++ show ec
                         , "Stderr:"
-                        , err
+                        , errStr
                         ]
 
 -- TODO: use forFileRecursive_
@@ -590,7 +592,11 @@ stdoutOutput :: FilePath
 stdoutOutput = "_stdout"
 
 defaultEnv :: [(String, String)]
-defaultEnv = [("PATH", "/usr/bin:/bin")]
+defaultEnv =
+    [ ("PATH", "/usr/bin:/bin")
+    -- Set LANG to enable TemplateHaskell code reading UTF-8 files correctly.
+    , ("LANG", "en_US.UTF-8")
+    ]
 
 spliceTempDir :: FilePath -> String -> String
 spliceTempDir tmp = T.unpack . T.replace (T.pack "${TMPDIR}") (T.pack tmp) . T.pack
