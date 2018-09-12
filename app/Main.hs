@@ -31,6 +31,7 @@ data CommandOpt
     | CleanAll
     | Build [(PackageName, Target)]
     | Run Sandboxed (PackageName, Target) [String]
+    | Test Sandboxed [(PackageName, Target)]
     | Which (PackageName, Target)
 
 data Sandboxed = Sandbox | NoSandbox
@@ -149,6 +150,7 @@ parseCommand = subparser $ mconcat
     , make "clean-all" cleanAllCommand "Clean project & dependencies"
     , make "build" buildCommand "Build project"
     , make "run" runCommand "Run executable"
+    , make "test" testCommand "Run test suites"
     , make "which" whichCommand "Build executable and print its location"
     ]
   where
@@ -169,6 +171,9 @@ buildCommand = Build <$> many parseTarget
 runCommand :: Parser CommandOpt
 runCommand = Run <$> parseSandboxed <*> parseTarget
                  <*> many (strArgument (metavar "ARGUMENT"))
+
+testCommand :: Parser CommandOpt
+testCommand = Test <$> parseSandboxed <*> many parseTarget
 
 whichCommand :: Parser CommandOpt
 whichCommand = Which <$> parseTarget
@@ -203,11 +208,7 @@ runWithOptions _ _ CleanAll = do
 runWithOptions _ _ (Build targets) = do
     cleaning False
     action $ do
-        -- Build everything if the targets list is empty
-        targets' <- if null targets
-                        then map (,TargetAll) . HM.keys . localPackages
-                                <$> askConfig
-                        else pure targets
+        targets' <- targetsOrEverything targets
         -- Keep track of the number of targets.
         -- TODO: count transitive deps as well.
         let numTargets = length targets'
@@ -223,12 +224,24 @@ runWithOptions next ht (Run sandbox (pkg, target) args) = do
     action $ do
         exe <- buildExeTarget pkg target
         liftIO $ writeIORef next $ runBin ht sandbox exe args
+runWithOptions next ht (Test sandbox targets) = do
+    cleaning False
+    action $ do
+        targets' <- targetsOrEverything targets
+        tests <- concat <$> mapM (uncurry buildTestTargets) targets'
+        liftIO $ writeIORef next $ mapM_ (\t -> runBin ht sandbox t []) tests
 runWithOptions _ _ (Which (pkg, target)) = do
     cleaning False
     action $ do
         exe <- buildExeTarget pkg target
         -- TODO: nicer output format.
         putNormal $ pathIn (builtBinary exe)
+
+-- Post-process command-line input.  If it's empty, build all local packages.
+targetsOrEverything :: [(PackageName, Target)] -> Action [(PackageName, Target)]
+targetsOrEverything [] = map (, TargetAll) . HM.keys . localPackages
+                            <$> askConfig
+targetsOrEverything ts = return ts
 
 runBin :: HandleTemps -> Sandboxed -> BuiltBinary -> [String] -> IO ()
 runBin ht sandbox exe args =
@@ -246,6 +259,15 @@ buildExeTarget pkg target = case target of
     TargetLib -> error "command can't be used with a \"lib\" target"
     TargetAllTests -> error "command can't be used with multiple \"test\" targets"
     TargetTest name -> askBuiltTestSuite pkg name
+
+buildTestTargets :: PackageName -> Target -> Action [BuiltBinary]
+buildTestTargets pkg target = case target of
+    TargetExe _ -> error "command can't be used with an \"exe\" target"
+    TargetAll -> askBuiltTestSuites pkg
+    TargetAllTests -> askBuiltTestSuites pkg
+    TargetTest name -> (\x -> [x]) <$> askBuiltTestSuite pkg name
+    TargetAllExes -> error "command can't be used with \"exe\" targets"
+    TargetLib -> error "command can't be used with \"lib\" targets"
 
 main :: IO ()
 main = do

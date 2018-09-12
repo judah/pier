@@ -12,7 +12,7 @@ module Pier.Build.Components
     where
 
 import Control.Applicative (liftA2)
-import Control.Monad (filterM)
+import Control.Monad (filterM, (>=>))
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Development.Shake
@@ -201,11 +201,11 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
 
 newtype BuiltExecutablesQ = BuiltExecutablesQ PackageName
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
-type instance RuleResult BuiltExecutablesQ = Map.Map String BuiltBinary
+type instance RuleResult BuiltExecutablesQ = [BuiltBinary]
 instance Show BuiltExecutablesQ where
     show (BuiltExecutablesQ p) = "Executables from " ++ display p
 
-askBuiltExecutables :: PackageName -> Action (Map.Map String BuiltBinary)
+askBuiltExecutables :: PackageName -> Action [BuiltBinary]
 askBuiltExecutables = askPersistent . BuiltExecutablesQ
 
 data BuiltTestSuiteQ = BuiltTestSuiteQ PackageName String
@@ -218,13 +218,11 @@ instance Show BuiltTestSuiteQ where
 askBuiltTestSuite :: PackageName -> String -> Action BuiltBinary
 askBuiltTestSuite p e = askPersistent $ BuiltTestSuiteQ p e
 
-buildExecutables :: BuiltExecutablesQ -> Action (Map.Map String BuiltBinary)
+buildExecutables :: BuiltExecutablesQ -> Action [BuiltBinary]
 buildExecutables (BuiltExecutablesQ p) = getConfiguredPackage p >>= \case
-    Left _ -> return Map.empty
+    Left _ -> return []
     Right confd ->
-        fmap Map.fromList
-            . mapM (\e -> (display $ exeName e,)
-                                <$> buildBinaryFromPkg confd (exeSpec e))
+            mapM (buildBinaryFromPkg confd . exeSpec)
             . filter (buildable . buildInfo)
             $ executables (confdDesc confd)
 
@@ -297,20 +295,18 @@ buildBinaryFromPkg confd bin = do
 
 newtype BuiltTestSuitesQ = BuiltTestSuitesQ PackageName
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
-type instance RuleResult BuiltTestSuitesQ = Map.Map String BuiltBinary
+type instance RuleResult BuiltTestSuitesQ = [BuiltBinary]
 instance Show BuiltTestSuitesQ where
     show (BuiltTestSuitesQ p) = "Test suites from " ++ display p
 
-askBuiltTestSuites :: PackageName -> Action (Map.Map String BuiltBinary)
+askBuiltTestSuites :: PackageName -> Action [BuiltBinary]
 askBuiltTestSuites = askPersistent . BuiltTestSuitesQ
 
-buildTestSuites :: BuiltTestSuitesQ -> Action (Map.Map String BuiltBinary)
+buildTestSuites :: BuiltTestSuitesQ -> Action [BuiltBinary]
 buildTestSuites (BuiltTestSuitesQ p) = getConfiguredPackage p >>= \case
-    Left _ -> return Map.empty
+    Left _ -> return []
     Right confd ->
-        fmap Map.fromList
-            . mapM (\e -> (display $ testName e,)
-                                <$> (testSpec e >>= buildBinaryFromPkg confd))
+            mapM (testSpec >=> buildBinaryFromPkg confd)
             . filter (buildable . testBuildInfo)
             $ testSuites (confdDesc confd)
 
