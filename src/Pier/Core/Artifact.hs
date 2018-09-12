@@ -440,36 +440,41 @@ createArtifacts maybeSharedCache h messages act = do
     -- below.  This could happen if Shake's database was cleaned, or if the
     -- action stops before Shake registers it as complete, due to either a
     -- synchronous or asynchronous exception.
-    unless exists $ do
-        tempDir <- createPierTempDirectory $ hashString h ++ "-result"
-        case maybeSharedCache of
-            Nothing -> act tempDir
-            Just cache -> do
-                getFromSharedCache <- liftIO $ copyFromCache cache h tempDir
-                if getFromSharedCache
-                    then mapM_ (\m -> putNormal $ m ++ " (cached)") messages
-                    else do
-                        act tempDir
-                        liftIO $ copyToCache cache h tempDir
-
-        liftIO $ do
-            -- Move the created directory to its final location,
-            -- with all the files and directories inside set to
-            -- read-only.
-            -- Don't set permissions on symbolic links; they're ignored
-            -- on most systems (e.g., Linux).
-            let freeze RegularFile = freezePath
-                freeze DirectoryEnd = freezePath
-                freeze _ = const $ return ()
-            -- TODO: why is getRegularContents used?
-            -- Ah, to avoid the current directory.
-            getRegularContents tempDir
-                >>= mapM_ (forFileRecursive_ freeze . (tempDir </>))
-            createParentIfMissing destDir
-            Directory.renameDirectory tempDir destDir
-            -- Also set the directory itself to read-only, but wait
-            -- until the last step since read-only files can't be moved.
-            freezePath destDir
+    if exists
+        then mapM_ cacheMessage messages
+        else do
+            tempDir <- createPierTempDirectory $ hashString h ++ "-result"
+            case maybeSharedCache of
+                Nothing -> act tempDir
+                Just cache -> do
+                    getFromSharedCache <- liftIO $ copyFromCache cache h tempDir
+                    if getFromSharedCache
+                        then mapM_ sharedCacheMessage messages
+                        else do
+                            act tempDir
+                            liftIO $ copyToCache cache h tempDir
+            liftIO $ finish tempDir destDir
+  where
+    cacheMessage m = putNormal $ "(from cache: " ++ m ++ ")"
+    sharedCacheMessage m = putNormal $ "(from shared cache: " ++ m ++ ")"
+    finish tempDir destDir = do
+        -- Move the created directory to its final location,
+        -- with all the files and directories inside set to
+        -- read-only.
+        -- Don't set permissions on symbolic links; they're ignored
+        -- on most systems (e.g., Linux).
+        let freeze RegularFile = freezePath
+            freeze DirectoryEnd = freezePath
+            freeze _ = const $ return ()
+        -- TODO: why is getRegularContents used?
+        -- Ah, to avoid the current directory.
+        getRegularContents tempDir
+            >>= mapM_ (forFileRecursive_ freeze . (tempDir </>))
+        createParentIfMissing destDir
+        Directory.renameDirectory tempDir destDir
+        -- Also set the directory itself to read-only, but wait
+        -- until the last step since read-only files can't be moved.
+        freezePath destDir
 
 -- TODO: consider using hard links for these copies, to save space
 -- TODO: make sure the directories are read-only
