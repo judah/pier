@@ -17,42 +17,38 @@ description: |
 category: Development
 github: judah/pier
 
-dependencies:
-  - base >= 4.11.0
-  - directory >= 1.3.1
-  - Cabal >= 2.2.0.0
-  - shake
-  - unordered-containers
-
-default-extensions:
-  - BangPatterns
-  - DeriveGeneric
-  - FlexibleContexts
-  - LambdaCase
-  - MultiWayIf
-  - NondecreasingIndentation
-  - ScopedTypeVariables
-  - StandaloneDeriving
-  - TupleSections
-  - TypeFamilies
-  - TypeSynonymInstances
-
 library:
   source-dirs: 'src'
   dependencies:
+    - Cabal >= 2.2.0.0
+    - base >= 4.11.0
     - base64-bytestring
     - binary
     - bytestring
     - containers
     - cryptohash-sha256
+    - directory >= 1.3.1
     - hashable
     - http-client
     - http-client-tls
     - http-types
     - process
+    - shake
     - temporary
     - text
     - unix
   other-modules:
     - Pier.Core.Directory
     - Pier.Core.HashableSet
+  default-extensions:
+    - BangPatterns
+    - DeriveGeneric
+    - FlexibleContexts
+    - LambdaCase
+    - MultiWayIf
+    - NondecreasingIndentation
+    - ScopedTypeVariables
+    - StandaloneDeriving
+    - TupleSections
+    - TypeFamilies
+    - TypeSynonymInstances
