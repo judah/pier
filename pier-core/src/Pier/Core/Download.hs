@@ -18,6 +18,8 @@ import Network.HTTP.Types.Status
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 import qualified System.Directory as Directory
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import Pier.Core.Artifact
 import Pier.Core.Directory
@@ -30,14 +32,12 @@ import Pier.Core.Run
 data Download = Download
     { downloadUrlPrefix :: String
     , downloadName :: FilePath
-    , downloadFilePrefix :: FilePath
         }
     deriving (Typeable, Eq, Generic)
 
 instance Show Download where
     show d = "Download " ++ show (downloadName d)
             ++ " from " ++ show (downloadUrlPrefix d)
-            ++ " into " ++ show (downloadFilePrefix d)
 
 instance Hashable Download
 instance Binary Download
@@ -48,34 +48,27 @@ type instance RuleResult Download = Artifact
 askDownload :: Download -> Action Artifact
 askDownload = askPersistent
 
--- TODO: make this its own rule type?
-downloadRules :: DownloadLocation -> Rules ()
-downloadRules loc = do
+downloadRules :: Maybe SharedCache -> Rules ()
+downloadRules sharedCache = do
     manager <- liftIO $ newManager tlsManagerSettings
     addPersistent $ \d -> do
-    -- Download to a shared location under $HOME/.pier, if it doesn't
-    -- already exist (atomically); then make an artifact that symlinks to it.
-    downloadsDir <- liftIO $ pierDownloadsDir loc
-    let result = downloadsDir </> downloadFilePrefix d
-                                        </> downloadName d
-    exists <- liftIO $ Directory.doesFileExist result
-    unless exists $ do
-        putNormal $ "Downloading " ++ downloadName d
-        -- TODO: fix the race
-        liftIO $ bracketOnError
-            (createPierTempFile $ takeFileName $ downloadName d)
-            Directory.removeFile
-            $ \tmp -> do
-                        let url = downloadUrlPrefix d ++ "/" ++ downloadName d
-                        req <- parseRequest url
-                        resp <- httpLbs req manager
-                        unless (statusIsSuccessful . responseStatus $ resp)
-                            $ error $ "Unable to download " ++ show url
-                                    ++ "\nStatus: " ++ showStatus (responseStatus resp)
-                        liftIO . L.writeFile tmp . responseBody $ resp
-                        createParentIfMissing result
-                        Directory.renameFile tmp result
-    return $ externalFile result
+    h <- makeHash . T.encodeUtf8 . T.pack
+            $ "download: " ++ show d
+    let path = downloadName d
+    let msg = "Downloading " ++ path
+    createArtifacts sharedCache h [msg] $ \tmpDir -> do
+        let out = tmpDir </> path
+        createParentIfMissing out
+        putNormal msg
+        liftIO $ do
+            let url = downloadUrlPrefix d ++ "/" ++ downloadName d
+            req <- parseRequest url
+            resp <- httpLbs req manager
+            unless (statusIsSuccessful . responseStatus $ resp)
+                $ error $ "Unable to download " ++ show url
+                        ++ "\nStatus: " ++ showStatus (responseStatus resp)
+            liftIO . L.writeFile out . responseBody $ resp
+    return $ Artifact (Built h) $ normaliseMore path
   where
     showStatus s = show (statusCode s) ++ " " ++ BC.unpack (statusMessage s)
 

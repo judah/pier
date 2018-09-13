@@ -43,7 +43,7 @@ module Pier.Core.Artifact
       artifactRules
     , SharedCache(..)
       -- * Artifact
-    , Artifact
+    , Artifact(..)
     , externalFile
     , (/>)
     , replaceArtifactExtension
@@ -76,6 +76,11 @@ module Pier.Core.Artifact
     , pathIn
     , withCwd
     , createDirectoryA
+      -- * Internals
+    , makeHash
+    , createArtifacts
+    , Source(..)
+    , normaliseMore
     ) where
 
 import Control.Monad (forM_, when, unless, void)

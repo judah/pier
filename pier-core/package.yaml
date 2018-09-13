@@ -1,5 +1,5 @@
 name: pier-core
-version: 0.2.0.1
+version: 0.3.0.0
 license: BSD3
 maintainer: judah.jacobson@gmail.com
 synopsis: A library for writing forwards-declared build systems in haskell.
