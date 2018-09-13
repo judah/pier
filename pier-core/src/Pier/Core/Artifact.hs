@@ -262,6 +262,7 @@ hashDir :: Hash -> FilePath
 hashDir h = artifactDir </> hashString h
 
 newtype SharedCache = SharedCache FilePath
+    deriving Show
 
 globalHashDir :: SharedCache -> Hash -> FilePath
 globalHashDir (SharedCache f) h = f </> hashString h

@@ -2,10 +2,8 @@ module Pier.Core.Download
     ( askDownload
     , Download(..)
     , downloadRules
-    , DownloadLocation(..)
     ) where
 
-import Control.Exception (bracketOnError)
 import Control.Monad (unless)
 import Development.Shake
 import Development.Shake.Classes
@@ -17,14 +15,12 @@ import Network.HTTP.Types.Status
 
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
-import qualified System.Directory as Directory
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import Pier.Core.Artifact
 import Pier.Core.Directory
 import Pier.Core.Persistent
-import Pier.Core.Run
 
 -- | Downloads @downloadUrlPrefix / downloadName@ to
 -- @downloadFilePrefix / downloadName@.
@@ -32,7 +28,7 @@ import Pier.Core.Run
 data Download = Download
     { downloadUrlPrefix :: String
     , downloadName :: FilePath
-        }
+    }
     deriving (Typeable, Eq, Generic)
 
 instance Show Download where
@@ -50,16 +46,17 @@ askDownload = askPersistent
 
 downloadRules :: Maybe SharedCache -> Rules ()
 downloadRules sharedCache = do
+    liftIO $ putStrLn $ "DIR: " ++ show sharedCache
     manager <- liftIO $ newManager tlsManagerSettings
     addPersistent $ \d -> do
     h <- makeHash . T.encodeUtf8 . T.pack
             $ "download: " ++ show d
-    let path = downloadName d
-    let msg = "Downloading " ++ path
+    let name = downloadName d
+    let msg = "Downloading " ++ name
     createArtifacts sharedCache h [msg] $ \tmpDir -> do
-        let out = tmpDir </> path
+        let out = tmpDir </> name
         createParentIfMissing out
-        putNormal msg
+        putNormal ("XXX" ++ msg)
         liftIO $ do
             let url = downloadUrlPrefix d ++ "/" ++ downloadName d
             req <- parseRequest url
@@ -68,16 +65,6 @@ downloadRules sharedCache = do
                 $ error $ "Unable to download " ++ show url
                         ++ "\nStatus: " ++ showStatus (responseStatus resp)
             liftIO . L.writeFile out . responseBody $ resp
-    return $ Artifact (Built h) $ normaliseMore path
+    return $ Artifact (Built h) $ normaliseMore name
   where
     showStatus s = show (statusCode s) ++ " " ++ BC.unpack (statusMessage s)
-
-pierDownloadsDir :: DownloadLocation -> IO FilePath
-pierDownloadsDir DownloadToHome = do
-    home <- Directory.getHomeDirectory
-    return $ home </> ".pier/downloads"
-pierDownloadsDir DownloadLocal = return $ pierFile "downloads"
-
-data DownloadLocation
-    = DownloadToHome
-    | DownloadLocal

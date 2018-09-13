@@ -58,7 +58,7 @@ handleTemps :: CommonOptions -> HandleTemps
 handleTemps = fromMaybe RemoveTemps . getLast . lastHandleTemps
 
 sharedCache :: CommonOptions -> UseSharedCache
-sharedCache = fromMaybe DontUseSharedCache . getLast . lastSharedCache
+sharedCache = fromMaybe UseSharedCache . getLast . lastSharedCache
 
 -- | Parse command-independent options.
 --
@@ -86,9 +86,9 @@ parseCommonOptions h = CommonOptions <$> parsePierYaml
 
     parseSharedCache :: Parser (Last UseSharedCache)
     parseSharedCache = Last <$>
-                        flag Nothing (Just UseSharedCache)
-                            ( long "shared-cache"
-                            <> help "Use a shared cache at ~/.pier/artifact")
+                        flag Nothing (Just DontUseSharedCache)
+                            ( long "no-shared-cache"
+                            <> help "Don't use the shared cache at ~/.pier/artifact")
 
 data UseSharedCache = UseSharedCache | DontUseSharedCache
     deriving Show
