@@ -1,5 +1,5 @@
 name: pier
-version: 0.2.0.0
+version: 0.2.0.1
 license: BSD3
 maintainer: judah.jacobson@gmail.com
 synopsis: Yet another Haskell build system.
@@ -20,20 +20,20 @@ executables:
     main: Main.hs
     ghc-options: -threaded -with-rtsopts=-I0
     dependencies:
-      - Cabal >= 2.2.0.0
-      - aeson
-      - base >= 4.11.0
-      - binary
-      - binary-orphans
-      - containers
-      - directory >= 1.3.1
-      - hashable
+      - Cabal == 2.2.*
+      - aeson >= 1.3 && < 1.5
+      - base == 4.11.*
+      - binary == 0.8.*
+      - binary-orphans == 0.1.*
+      - containers == 0.5.*
+      - directory >= 1.3.1 && < 1.4
+      - hashable == 1.2.*
       - optparse-applicative
       - pier-core == 0.2.*
       - shake == 0.16.*
-      - split
-      - text
-      - transformers
-      - unordered-containers
-      - yaml
+      - split == 0.2.*
+      - text == 1.2.*
+      - transformers == 0.5.*
+      - unordered-containers == 0.2.*
+      - yaml >= 0.8 && < 0.11
     default-extensions: !include "../common-extensions.yaml"
