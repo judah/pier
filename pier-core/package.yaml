@@ -38,6 +38,7 @@ library:
     - text == 1.2.*
     - unix == 2.7.*
   other-modules:
-    - Pier.Core.Directory
-    - Pier.Core.HashableSet
+    - Pier.Core.Internal.Directory
+    - Pier.Core.Internal.HashableSet
+    - Pier.Core.Internal.Store
   default-extensions: !include ../common-extensions.yaml

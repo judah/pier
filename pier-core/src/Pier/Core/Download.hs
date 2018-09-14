@@ -19,7 +19,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import Pier.Core.Artifact
-import Pier.Core.Directory
+import Pier.Core.Internal.Directory
+import Pier.Core.Internal.Store
 import Pier.Core.Persistent
 
 -- | Downloads @downloadUrlPrefix / downloadName@ to
@@ -46,7 +47,6 @@ askDownload = askPersistent
 
 downloadRules :: Maybe SharedCache -> Rules ()
 downloadRules sharedCache = do
-    liftIO $ putStrLn $ "DIR: " ++ show sharedCache
     manager <- liftIO $ newManager tlsManagerSettings
     addPersistent $ \d -> do
     h <- makeHash . T.encodeUtf8 . T.pack
@@ -65,6 +65,6 @@ downloadRules sharedCache = do
                 $ error $ "Unable to download " ++ show url
                         ++ "\nStatus: " ++ showStatus (responseStatus resp)
             liftIO . L.writeFile out . responseBody $ resp
-    return $ Artifact (Built h) $ normaliseMore name
+    return $ builtArtifact h name
   where
     showStatus s = show (statusCode s) ++ " " ++ BC.unpack (statusMessage s)
