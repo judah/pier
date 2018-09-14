@@ -4,8 +4,6 @@ module Pier.Core.Internal.Store
       HandleTemps(..),
       withPierTempDirectory,
       withPierTempDirectoryAction,
-      pierTempDirectory,
-      createPierTempDirectory,
       createPierTempFile,
       -- * Build directory
       pierDir,
