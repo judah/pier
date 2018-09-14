@@ -5,6 +5,6 @@
     - message:
       - name: Weeds exported
       - module:
-        - name: Pier.Core.Directory
+        - name: Pier.Core.Internal.Directory
         - identifier: SymbolicLink
 

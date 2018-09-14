@@ -1,4 +1,4 @@
-module Pier.Core.Directory
+module Pier.Core.Internal.Directory
     ( forFileRecursive_
     , FileItem(..)
     , getRegularContents
