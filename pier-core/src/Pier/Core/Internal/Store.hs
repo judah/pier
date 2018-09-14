@@ -4,7 +4,6 @@ module Pier.Core.Internal.Store
       HandleTemps(..),
       withPierTempDirectory,
       withPierTempDirectoryAction,
-      createPierTempFile,
       -- * Build directory
       pierDir,
       -- * Hash directories
@@ -73,11 +72,6 @@ createPierTempDirectory :: MonadIO m => String -> m FilePath
 createPierTempDirectory template = liftIO $ do
     createDirectoryIfMissing True pierTempDirectory
     createTempDirectory pierTempDirectory template
-
-createPierTempFile :: MonadIO m => String -> m FilePath
-createPierTempFile template = liftIO $ do
-    createDirectoryIfMissing True pierTempDirectory
-    writeTempFile pierTempDirectory template ""
 
 -- | Unique identifier of a command
 newtype Hash = Hash B.ByteString
