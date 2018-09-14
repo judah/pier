@@ -47,22 +47,18 @@ data CommonOptions = CommonOptions
     { pierYaml :: Last FilePath
     , shakeFlags :: [String]
     , lastHandleTemps :: Last HandleTemps
-    , lastDownloadLocation :: Last DownloadLocation
     , lastSharedCache :: Last UseSharedCache
     }
 
 instance Semigroup CommonOptions where
-    CommonOptions y f ht dl sc <> CommonOptions y' f' ht' dl' sc'
-        = CommonOptions (y <> y') (f <> f') (ht <> ht') (dl <> dl') (sc <> sc')
+    CommonOptions y f ht sc <> CommonOptions y' f' ht' sc'
+        = CommonOptions (y <> y') (f <> f') (ht <> ht') (sc <> sc')
 
 handleTemps :: CommonOptions -> HandleTemps
 handleTemps = fromMaybe RemoveTemps . getLast . lastHandleTemps
 
-downloadLocation :: CommonOptions -> DownloadLocation
-downloadLocation = fromMaybe DownloadToHome . getLast . lastDownloadLocation
-
 sharedCache :: CommonOptions -> UseSharedCache
-sharedCache = fromMaybe DontUseSharedCache . getLast . lastSharedCache
+sharedCache = fromMaybe UseSharedCache . getLast . lastSharedCache
 
 -- | Parse command-independent options.
 --
@@ -75,7 +71,6 @@ parseCommonOptions :: Hidden -> Parser CommonOptions
 parseCommonOptions h = CommonOptions <$> parsePierYaml
                                      <*> parseShakeFlags h
                                      <*> parseHandleTemps
-                                     <*> parseDownloadLocation
                                      <*> parseSharedCache
   where
     parsePierYaml :: Parser (Last FilePath)
@@ -89,20 +84,11 @@ parseCommonOptions h = CommonOptions <$> parsePierYaml
                 (long "keep-temps"
                 <> help "Don't remove temporary directories")
 
-    -- OK, this doesn't work!  Nice catch.
-    -- Last isn't what we want I guess.
-    parseDownloadLocation :: Parser (Last DownloadLocation)
-    parseDownloadLocation =
-        Last <$>
-            flag Nothing (Just DownloadLocal)
-                (long "download-local"
-                <> help "Store downloads in the local _pier directory")
-
     parseSharedCache :: Parser (Last UseSharedCache)
     parseSharedCache = Last <$>
-                        flag Nothing (Just UseSharedCache)
-                            ( long "shared-cache"
-                            <> help "Use a shared cache at ~/.pier/artifact")
+                        flag Nothing (Just DontUseSharedCache)
+                            ( long "no-shared-cache"
+                            <> help "Don't use the shared cache at ~/.pier/artifact")
 
 data UseSharedCache = UseSharedCache | DontUseSharedCache
     deriving Show
@@ -302,7 +288,7 @@ main = do
             buildPlanRules
             buildPackageRules
             artifactRules cache ht
-            downloadRules $ downloadLocation commonOpts
+            downloadRules cache
             installGhcRules
             configRules pierYamlFile
             runWithOptions next ht cmdOpt

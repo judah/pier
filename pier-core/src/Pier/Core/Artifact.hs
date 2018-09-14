@@ -210,47 +210,17 @@ instance Applicative Output where
 -- The input must be a relative path and nontrivial (i.e., not @"."@ or @""@).
 output :: FilePath -> Output Artifact
 output f
-    | normaliseMore f == "." = error $ "Can't output empty path " ++ show f
+    | ds `elem` [[], ["."]] = error $ "can't output empty path " ++ show f
+    | ".." `elem` ds  = error $ "output: can't have \"..\" as a path component: "
+                                    ++ show f
+    | normalise f == "." = error $ "Can't output empty path " ++ show f
     | isAbsolute f = error $ "Can't output absolute path " ++ show f
-    | otherwise = Output [f] $ flip Artifact (normaliseMore f) . Built
+    | otherwise = Output [f] $ flip builtArtifact f
+  where
+    ds = splitDirectories f
 
 externalArtifactDir :: FilePath
 externalArtifactDir = artifactDir </> "external"
-
--- | An 'Artifact' is a file or folder that was created by a build command.
-data Artifact = Artifact Source FilePath
-    deriving (Eq, Ord, Generic, Hashable, Binary, NFData)
-
-instance Show Artifact where
-    show (Artifact External f) = "external:" ++ show f
-    show (Artifact (Built h) f) = hashString h ++ ":" ++ show f
-
-data Source = Built Hash | External
-    deriving (Show, Eq, Ord, Generic, Hashable, Binary, NFData)
-
--- | Create an 'Artifact' from an input file to the build (for example, a
--- source file created by the user).
---
--- If it is a relative path, changes to the file will cause rebuilds of
--- Commands and Rules that dependended on it.
-externalFile :: FilePath -> Artifact
-externalFile f
-    | null f' = error "externalFile: empty input"
-    | artifactDir `List.isPrefixOf` f' = error $ "externalFile: forbidden prefix: " ++ show f'
-    | otherwise = Artifact External f'
-  where
-    f' = normaliseMore f
-
--- | Normalize a filepath, also dropping the trailing slash.
-normaliseMore :: FilePath -> FilePath
-normaliseMore = dropTrailingPathSeparator . normalise
-
--- | Create a reference to a sub-file of the given 'Artifact', which must
--- refer to a directory.
-(/>) :: Artifact -> FilePath -> Artifact
-Artifact source f /> g = Artifact source $ normaliseMore $ f </> g
-
-infixr 5 />  -- Same as </>
 
 artifactRules :: Maybe SharedCache -> HandleTemps -> Rules ()
 artifactRules cache ht = do
@@ -577,7 +547,7 @@ writeArtifactRules sharedCache = addPersistent
         let out = tmpDir </> path
         createParentIfMissing out
         liftIO $ writeFile out contents
-    return $ Artifact (Built h) $ normaliseMore path
+    return $ builtArtifact h path
 
 doesArtifactExist :: Artifact -> Action Bool
 doesArtifactExist (Artifact External f) = Development.Shake.doesFileExist f

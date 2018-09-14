@@ -79,8 +79,7 @@ instance FromJSON PlanPackage where
 buildPlanRules :: Rules ()
 buildPlanRules = addPersistent $ \(ReadPlan planName) -> do
         f <- askDownload Download
-                { downloadFilePrefix = "stackage/plan"
-                , downloadName = renderPlanName planName <.> "yaml"
+                { downloadName = renderPlanName planName <.> "yaml"
                 , downloadUrlPrefix = planUrlPrefix planName
                 }
         cs <- readArtifactB f
@@ -250,8 +249,7 @@ downloadAndInstallGHC
     :: Version -> Action InstalledGhc
 downloadAndInstallGHC version = do
     setupYaml <- askDownload Download
-                    { downloadFilePrefix = "stackage/setup"
-                    , downloadName = "stack-setup-2.yaml"
+                    { downloadName = "stack-setup-2.yaml"
                     , downloadUrlPrefix = setupUrl
                     }
     -- TODO: don't re-parse the yaml for every GHC version
@@ -267,8 +265,7 @@ downloadAndInstallGHC version = do
     -- rerunIfCleaned
     let (url, f) = splitFileName $ downloadUrl download
     tar <- askDownload Download
-            { downloadFilePrefix = "stackage/ghc"
-            , downloadName = f
+            { downloadName = f
             , downloadUrlPrefix = url
             }
     -- TODO: check file size and sha1

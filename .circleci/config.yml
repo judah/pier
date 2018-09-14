@@ -44,14 +44,13 @@ references:
             command: |
                 echo "system-ghc: true" >> example/pier.yaml
         - run: stack exec pier -- build --pier-yaml=example/pier.yaml text unix-compat
-        # Test the shared cache
+        # Test without the shared cache
         # TODO: add more extensive testing
         - run:
             command: |
                 PIER="stack exec pier -- --pier-yaml=example/pier.yaml"
-                $PIER build --shared-cache network
                 $PIER clean-all
-                $PIER build --shared-cache network split
+                $PIER build --no-shared-cache network split
 
 jobs:
   build:

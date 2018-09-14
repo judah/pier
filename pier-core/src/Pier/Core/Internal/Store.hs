@@ -4,7 +4,6 @@ module Pier.Core.Internal.Store
       HandleTemps(..),
       withPierTempDirectory,
       withPierTempDirectoryAction,
-      createPierTempFile,
       -- * Build directory
       pierDir,
       -- * Hash directories
@@ -17,6 +16,12 @@ module Pier.Core.Internal.Store
       unfreezeArtifacts,
       SharedCache(..),
       hashExternalFile,
+      -- * Artifacts
+      Artifact(..),
+      Source(..),
+      builtArtifact,
+      externalFile,
+      (/>),
       -- * Rules
       storeRules,
     ) where
@@ -35,6 +40,7 @@ import System.IO.Temp
 import qualified Data.Binary as Binary
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.List as List
 
 import Pier.Core.Internal.Directory
 
@@ -66,11 +72,6 @@ createPierTempDirectory :: MonadIO m => String -> m FilePath
 createPierTempDirectory template = liftIO $ do
     createDirectoryIfMissing True pierTempDirectory
     createTempDirectory pierTempDirectory template
-
-createPierTempFile :: MonadIO m => String -> m FilePath
-createPierTempFile template = liftIO $ do
-    createDirectoryIfMissing True pierTempDirectory
-    writeTempFile pierTempDirectory template ""
 
 -- | Unique identifier of a command
 newtype Hash = Hash B.ByteString
@@ -216,3 +217,41 @@ unfreezeArtifacts = forM_ [artifactDir, pierTempDirectory] $ \dir -> do
     unfreeze DirectoryStart f =
         getPermissions f >>= setPermissions f . setOwnerWritable True
     unfreeze _ _ = return ()
+
+-- | An 'Artifact' is a file or folder that was created by a build command.
+data Artifact = Artifact Source FilePath
+    deriving (Eq, Ord, Generic, Hashable, Binary, NFData)
+
+instance Show Artifact where
+    show (Artifact External f) = "external:" ++ show f
+    show (Artifact (Built h) f) = hashString h ++ ":" ++ show f
+
+data Source = Built Hash | External
+    deriving (Show, Eq, Ord, Generic, Hashable, Binary, NFData)
+
+builtArtifact :: Hash -> FilePath -> Artifact
+builtArtifact h = Artifact (Built h) . normaliseMore
+
+-- | Create an 'Artifact' from an input file to the build (for example, a
+-- source file created by the user).
+--
+-- If it is a relative path, changes to the file will cause rebuilds of
+-- Commands and Rules that dependended on it.
+externalFile :: FilePath -> Artifact
+externalFile f
+    | null f' = error "externalFile: empty input"
+    | artifactDir `List.isPrefixOf` f' = error $ "externalFile: forbidden prefix: " ++ show f'
+    | otherwise = Artifact External f'
+  where
+    f' = normaliseMore f
+
+-- | Normalize a filepath, also dropping the trailing slash.
+normaliseMore :: FilePath -> FilePath
+normaliseMore = dropTrailingPathSeparator . normalise
+
+-- | Create a reference to a sub-file of the given 'Artifact', which must
+-- refer to a directory.
+(/>) :: Artifact -> FilePath -> Artifact
+Artifact source f /> g = Artifact source $ normaliseMore $ f </> g
+
+infixr 5 />  -- Same as </>
