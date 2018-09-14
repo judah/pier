@@ -52,7 +52,7 @@ module Pier.Core.Artifact
     , doesArtifactExist
     , matchArtifactGlob
     , unfreezeArtifacts
-    , callArtifact
+    , callCommand
       -- * Creating artifacts
     , writeArtifact
     , runCommand
@@ -111,7 +111,7 @@ import Pier.Core.Run
 -- 'prog'/'progA'/'progTemp', and/or 'shadow', which may be combined using '<>'/'mappend'.
 -- Also specifies the input 'Artifacts' that are used by those commands.
 data Command = Command
-    { _commandProgs :: [Prog]
+    { commandProgs :: [Prog]
     , commandInputs :: HashableSet Artifact
     }
     deriving (Typeable, Eq, Generic, Hashable, Binary, NFData)
@@ -510,13 +510,14 @@ readProg dir (Shadow a0 f0) = do
     liftIO $ linkShadow dir a0 f0
     return B.empty
 
+resolveCall :: FilePath -> Call -> FilePath
+resolveCall _ (CallEnv f) = f
+resolveCall dir (CallArtifact f) = dir </> pathIn f
+-- hack around shake weirdness w.r.t. relative binary paths
+resolveCall dir (CallTemp f) = dir </> f
+
 readProgCall :: FilePath -> Call -> [String] -> FilePath -> Action BC.ByteString
 readProgCall dir p as cwd = do
-    -- hack around shake weirdness w.r.t. relative binary paths
-    let p' = case p of
-                CallEnv s -> s
-                CallArtifact f -> dir </> pathIn f
-                CallTemp f -> dir </> f
     (ret, Stdout out, Stderr err)
         <- quietly $ command
                     [ Cwd $ dir </> cwd
@@ -524,7 +525,7 @@ readProgCall dir p as cwd = do
                     -- stderr will get printed if there's an error.
                     , EchoStderr False
                     ]
-                    p' (map (spliceTempDir dir) as)
+                    (resolveCall dir p) (map (spliceTempDir dir) as)
     let errStr = T.unpack . T.decodeUtf8With T.lenientDecode $ err
     case ret of
         ExitSuccess -> return out
@@ -732,13 +733,20 @@ matchArtifactGlob (Artifact External f) g
 matchArtifactGlob a g
     = liftIO $ matchDirFileGlob (pathIn a) g
 
--- TODO: merge more with above code?  How hermetic should it be?
-callArtifact :: HandleTemps -> Set Artifact -> Artifact -> [String] -> IO ()
-callArtifact ht inps bin args = withPierTempDirectory ht "exec" $ \tmp -> do
-    dir <- getCurrentDirectory
-    collectInputs (Set.insert bin inps) tmp
-    cmd_ [Cwd tmp]
-        (dir </> tmp </> pathIn bin) args
+callCommand :: HandleTemps -> Command -> IO ()
+callCommand ht c = withPierTempDirectory ht "exec" $ \tmp -> do
+    putStrLn $ "TEMP:" ++ show tmp
+    collectInputs (unHashableSet $ commandInputs c) tmp
+    mapM_ (execProg tmp) $ commandProgs c
+  where
+    execProg _ (Message s) = putStrLn s
+    execProg tmp (Shadow a f) = linkShadow tmp a f
+    execProg tmp (ProgCall p as cwd) = do
+        dir <- getCurrentDirectory
+        let cwd' = dir </> tmp </> cwd
+        print ("CURRENT:" ++ cwd')
+        print $ "RESOLVED: " ++ resolveCall tmp p
+        cmd_ [Cwd $ dir </> tmp </> cwd', Env defaultEnv] (resolveCall tmp p) as
 
 createDirectoryA :: FilePath -> Command
 createDirectoryA f = prog "mkdir" ["-p", f]

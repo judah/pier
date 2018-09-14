@@ -18,6 +18,7 @@ import System.Environment
 
 import qualified Data.HashMap.Strict as HM
 
+import Pier.Build.Executable
 import Pier.Build.Components
 import Pier.Build.Config
 import Pier.Build.Stackage
@@ -33,6 +34,7 @@ data CommandOpt
     | Build [(PackageName, Target)]
     | Run Sandboxed (PackageName, Target) [String]
     | Test Sandboxed [(PackageName, Target)]
+    | Repl (PackageName, Target)
     | Which (PackageName, Target)
 
 data Sandboxed = Sandbox | NoSandbox
@@ -157,6 +159,7 @@ parseCommand = subparser $ mconcat
     , make "run" runCommand "Run executable"
     , make "test" testCommand "Run test suites"
     , make "which" whichCommand "Build executable and print its location"
+    , make "repl" replCommand "Run ghci for the given library"
     ]
   where
     make name act desc =
@@ -186,6 +189,8 @@ testCommand = Test <$> parseSandboxed <*> many parseTarget
 whichCommand :: Parser CommandOpt
 whichCommand = Which <$> parseTarget
 
+replCommand :: Parser CommandOpt
+replCommand = Repl <$> parseTarget
 
 findPierYamlFile :: Maybe FilePath -> IO FilePath
 findPierYamlFile (Just f) = return f
@@ -235,6 +240,12 @@ runWithOptions next ht (Run sandbox (pkg, target) args) = do
     action $ do
         exe <- buildExeTarget pkg target
         liftIO $ writeIORef next $ runBin ht sandbox exe args
+runWithOptions  next ht (Repl (pkg, target)) = do
+    cleaning False
+    action $ case target of
+                TargetLib -> replLibrary ht pkg >>= liftIO . writeIORef next
+                TargetAll -> replLibrary ht pkg >>= liftIO . writeIORef next
+                _ -> error "repl can only be used with a library"
 runWithOptions next ht (Test sandbox targets) = do
     cleaning False
     action $ do
@@ -257,8 +268,7 @@ targetsOrEverything ts = return ts
 runBin :: HandleTemps -> Sandboxed -> BuiltBinary -> [String] -> IO ()
 runBin ht sandbox exe args =
     case sandbox of
-        Sandbox -> callArtifact ht (builtBinaryDataFiles exe)
-                        (builtBinary exe) args
+        Sandbox -> callCommand ht $ progBinary exe args
         NoSandbox -> cmd_ (WithStderr False)
                         (pathIn $ builtBinary exe) args
 

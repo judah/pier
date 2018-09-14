@@ -8,6 +8,7 @@ module Pier.Build.Components
     , askBuiltTestSuite
     , askBuiltTestSuites
     , BuiltBinary(..)
+    , replLibrary
     )
     where
 
@@ -28,14 +29,15 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Distribution.InstalledPackageInfo as IP
 
+import Pier.Build.CFlags
 import Pier.Build.Config
 import Pier.Build.ConfiguredPackage
 import Pier.Build.Executable
-import Pier.Build.CFlags
 import Pier.Build.Stackage
 import Pier.Build.TargetInfo
 import Pier.Core.Artifact
 import Pier.Core.Persistent
+import Pier.Core.Run (HandleTemps)
 
 
 buildPackageRules :: Rules ()
@@ -469,3 +471,31 @@ collectInstallIncludes dir bi
         case existing of
             (d, _):_ -> return (d </> f, f)
             _ -> error $ "Couldn't locate install-include " ++ show f
+
+replLibrary :: HandleTemps -> PackageName -> Action (IO ())
+replLibrary ht pkg =
+    getConfiguredPackage pkg >>= \case
+        Left _ -> error "Can't repl built-in packages yet"
+        Right confd
+            | Just lib <- library (confdDesc confd)
+            , let bi = libBuildInfo lib
+            , buildable bi -> do
+                deps <- askBuiltDeps $ targetDepNames bi
+                replLibraryFromDesc ht deps confd lib
+            | otherwise -> error "Package has no buildable libraries"
+
+replLibraryFromDesc ::
+       HandleTemps
+    -> BuiltDeps
+    -> ConfiguredPackage
+    -> Library
+    -> Action (IO ())
+replLibraryFromDesc ht deps@(BuiltDeps _ transDeps) confd lib = do
+    conf <- askConfig
+    let ghc = configGhc conf
+    let lbi = libBuildInfo lib
+    tinfo <- getTargetInfo confd lbi (TargetLibrary $ exposedModules lib)
+                transDeps ghc
+    return $ callCommand ht $ ghcCommand ghc deps confd tinfo
+                                (ghcOptions conf ++ ["--interactive"])
+    
