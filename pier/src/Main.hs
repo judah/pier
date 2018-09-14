@@ -58,7 +58,7 @@ handleTemps :: CommonOptions -> HandleTemps
 handleTemps = fromMaybe RemoveTemps . getLast . lastHandleTemps
 
 sharedCache :: CommonOptions -> UseSharedCache
-sharedCache = fromMaybe UseSharedCache . getLast . lastSharedCache
+sharedCache = fromMaybe UseHomeSharedCache . getLast . lastSharedCache
 
 -- | Parse command-independent options.
 --
@@ -85,12 +85,19 @@ parseCommonOptions h = CommonOptions <$> parsePierYaml
                 <> help "Don't remove temporary directories")
 
     parseSharedCache :: Parser (Last UseSharedCache)
-    parseSharedCache = Last <$>
+    parseSharedCache = fmap Last $
                         flag Nothing (Just DontUseSharedCache)
                             ( long "no-shared-cache"
                             <> help "Don't use the shared cache at ~/.pier/artifact")
+                       <|> optional (fmap UseSharedCacheAt $ strOption
+                                        $ long "shared-cache-path"
+                                            <> metavar "PATH"
+                                            <> help "Location of shared cache")
 
-data UseSharedCache = UseSharedCache | DontUseSharedCache
+data UseSharedCache
+    = UseHomeSharedCache
+    | DontUseSharedCache
+    | UseSharedCacheAt FilePath
     deriving Show
 
 data Hidden = Hidden | Shown
@@ -296,7 +303,8 @@ main = do
 
 getSharedCache :: UseSharedCache -> IO (Maybe SharedCache)
 getSharedCache DontUseSharedCache = return Nothing
-getSharedCache UseSharedCache = do
+getSharedCache (UseSharedCacheAt f) = return (Just $ SharedCache f)
+getSharedCache UseHomeSharedCache = do
     h <- getHomeDirectory
     return $ Just $ SharedCache $ h </> ".pier" </> "artifact"
 
