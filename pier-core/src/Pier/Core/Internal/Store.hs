@@ -60,7 +60,7 @@ withPierTempDirectory RemoveTemps template f = do
     withTempDirectory pierTempDirectory template f
 
 pierTempDirectory :: String
-pierTempDirectory = "tmp"
+pierTempDirectory = pierDir </> "tmp"
 
 createPierTempDirectory :: MonadIO m => String -> m FilePath
 createPierTempDirectory template = liftIO $ do
