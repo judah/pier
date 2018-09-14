@@ -20,9 +20,9 @@ import qualified Data.ByteString.Lazy as L
 import qualified System.Directory as Directory
 
 import Pier.Core.Artifact
-import Pier.Core.Directory
+import Pier.Core.Internal.Directory
+import Pier.Core.Internal.Store
 import Pier.Core.Persistent
-import Pier.Core.Run
 
 -- | Downloads @downloadUrlPrefix / downloadName@ to
 -- @downloadFilePrefix / downloadName@.
@@ -83,7 +83,7 @@ pierDownloadsDir :: DownloadLocation -> IO FilePath
 pierDownloadsDir DownloadToHome = do
     home <- Directory.getHomeDirectory
     return $ home </> ".pier/downloads"
-pierDownloadsDir DownloadLocal = return $ pierFile "downloads"
+pierDownloadsDir DownloadLocal = return $ pierDir </> "downloads"
 
 data DownloadLocation
     = DownloadToHome
