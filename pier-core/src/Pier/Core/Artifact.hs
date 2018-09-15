@@ -564,7 +564,6 @@ matchArtifactGlob a g
 
 callCommand :: HandleTemps -> Command -> IO ()
 callCommand ht c = withPierTempDirectory ht "exec" $ \tmp -> do
-    putStrLn $ "TEMP:" ++ show tmp
     collectInputs (unHashableSet $ commandInputs c) tmp
     mapM_ (execProg tmp) $ commandProgs c
   where
@@ -573,9 +572,7 @@ callCommand ht c = withPierTempDirectory ht "exec" $ \tmp -> do
     execProg tmp (ProgCall p as cwd) = do
         dir <- getCurrentDirectory
         let cwd' = dir </> tmp </> cwd
-        print ("CURRENT:" ++ cwd')
-        print $ "RESOLVED: " ++ resolveCall tmp p
-        cmd_ [Cwd $ dir </> tmp </> cwd', Env defaultEnv] (resolveCall tmp p) as
+        cmd_ [Cwd $ dir </> tmp </> cwd', Env defaultEnv] (resolveCall (dir </> tmp) p) as
 
 createDirectoryA :: FilePath -> Command
 createDirectoryA f = prog "mkdir" ["-p", f]

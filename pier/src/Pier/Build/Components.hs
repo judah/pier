@@ -37,7 +37,6 @@ import Pier.Build.Stackage
 import Pier.Build.TargetInfo
 import Pier.Core.Artifact
 import Pier.Core.Persistent
-import Pier.Core.Run (HandleTemps)
 
 
 buildPackageRules :: Rules ()
@@ -171,7 +170,8 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                     $ message (display pkg ++ ": building library")
                     <> ghcCommand ghc deps confd tinfo
                           (ghcOptions conf ++
-                            [ "-this-unit-id", display pkg
+                            [ "--make"
+                            , "-this-unit-id", display pkg
                             , "-hidir", hiDir
                             , "-hisuf", "dyn_hi"
                             , "-osuf", "dyn_o"
@@ -282,7 +282,8 @@ buildBinaryFromPkg confd bin = do
                         ++ binaryTypeName bin ++ " " ++ binaryName bin)
         <> ghcCommand ghc deps confd tinfo
               (ghcOptions conf ++
-                [ "-o", out
+                [ "--make"
+                , "-o", out
                 , "-hidir", "hi"
                 , "-odir", "o"
                 , "-dynamic"
@@ -347,9 +348,9 @@ ghcCommand ghc (BuiltDeps depPkgs transDeps) confd tinfo args
     cflags = targetCFlags tinfo
     pkgFile = (confdSourceDir confd />)
     allArgs =
-        -- Rely on GHC for module ordering and hs-boot files:
-        [ "--make"
-        , "-v0"
+        -- Rely on GHC for module ordering and hs-boot files; assume either
+        -- --make or --interactive will be passed
+        [ "-v0"
         , "-fPIC"
         , "-i"
         ]
