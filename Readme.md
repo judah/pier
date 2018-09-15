@@ -147,8 +147,8 @@ pier run --help
 | `--shake-arg={ARG}` | Pass the argument directly to Shake | |
 | `--keep-going` | Keep going if there are errors | False; stop after the first error |
 | `--keep-temps` | Preserve temporary directories | False |
-| `--download-local` | Save downloads under the local `_pier` instead of `$HOME/.pier` | False |
-| `--shared-cache` | Share a cache of build artifacts between different workspaces, located inside `$HOME/.pier` | False |
+| `--shared-cache-path` | Location of the shared cache | `$HOME/.pier/artifact` |
+| `--no-shared-cache` | Don't save build outputs to the the shared cache | False |
 
 ### `pier build`
 
@@ -245,6 +245,11 @@ where the `{HASH}` is a unique string depending on the command's command-line
 arguments and input dependencies.  This file organization is similar to Nix,
 though Pier aims for much more fine-grained build steps than a standard Nix
 package.
+
+Build outputs are also mirrored into a shared cache, located by default at `~/.pier/artifact/{HASH}`.
+Files are hard-linked between there and the local `_pier`.  This enables
+sharing work between multiple projects.  To disable this behavior, use the
+command-line flag `--no-shared-cache`.  To change the location, use `--shared-cache-path`.
 
 If necessary, `pier clean-all` will delete the `_pier` folder (and thus wipe out the entire build).  That folder can also be deleted manually with `chmod -R u+w _pier && rm -rf _pier`.  (Files and folders in `_pier` are marked as read-only.)
 

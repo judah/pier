@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Pier.Core.HashableSet
+module Pier.Core.Internal.HashableSet
     ( HashableSet(..)
     ) where
 
