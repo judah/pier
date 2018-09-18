@@ -109,7 +109,7 @@ search ghc flags m srcDir
         exists yFile
         let relOutput = toFilePath m <.> "hs"
         happy <- lift $ askBuiltExecutable (mkPackageName "happy") "happy"
-        lift . runCommand (output relOutput)
+        lift . runCommandOutput relOutput
              $ progBinary happy
                      ["-agc", "-o", relOutput, pathIn yFile]
                 <> input yFile
@@ -118,7 +118,7 @@ search ghc flags m srcDir
         let hsc = srcDir /> toFilePath m <.> "hsc"
         exists hsc
         let relOutput = toFilePath m <.> "hs"
-        lift $ runCommand (output relOutput)
+        lift $ runCommandOutput relOutput
              $ hsc2hsProg ghc
                       (["-o", relOutput
                        , pathIn hsc
@@ -135,7 +135,7 @@ search ghc flags m srcDir
         let relOutput = toFilePath m <.> "hs"
         -- TODO: mkPackageName doesn't exist in older ones
         alex <- lift $ askBuiltExecutable (mkPackageName "alex") "alex"
-        lift . runCommand (output relOutput)
+        lift . runCommandOutput relOutput
             $ progBinary alex
                      ["-g", "-o", relOutput, pathIn xFile]
                <> input xFile
@@ -144,7 +144,7 @@ search ghc flags m srcDir
         exists chsFile
         let relOutput = toFilePath m <.> "hs"
         c2hs <- lift $ askBuiltExecutable (mkPackageName "c2hs") "c2hs"
-        lift . runCommand (output relOutput)
+        lift . runCommandOutput relOutput
              $ input chsFile
             <> inputs (cIncludeDirs flags)
             <> progBinary c2hs

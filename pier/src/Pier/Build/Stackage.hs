@@ -151,7 +151,7 @@ parseGlobalPackagePath :: InstalledGhc -> FilePath -> Artifact
 parseGlobalPackagePath ghc f
     | Just f' <- List.stripPrefix "${pkgroot}/" f
         = ghcLibRoot ghc /> f'
-    | otherwise = externalFile f
+    | otherwise = external f
 
 ghcBinDir :: InstalledGhc -> Artifact
 ghcBinDir ghc = ghcLibRoot ghc /> "bin"
@@ -201,7 +201,7 @@ getSystemGhc :: Version -> Action InstalledGhc
 getSystemGhc version = do
     path <- fmap (head . words) . runCommandStdout
                 $ prog (versionedGhc version) ["--print-libdir"]
-    return $ InstalledGhc (externalFile path) version
+    return $ InstalledGhc (external path) version
 
 data DownloadInfo = DownloadInfo
     { downloadUrl :: String
@@ -321,7 +321,7 @@ makeRelativeGlobalDb corePkgs ghc = do
     let ghcFixed = "ghc-fixed"
     let db = ghcFixed </> packageConfD
     let ghcPkg = progTemp (ghcFixed </> "bin/ghc-pkg")
-    ghcDir <- runCommand (output ghcFixed)
+    ghcDir <- runCommandOutput ghcFixed
                 $ shadow (ghcLibRoot ghc) ghcFixed
                 <> inputList confs
                 <> message "Making global DB relative"

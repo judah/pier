@@ -20,7 +20,7 @@ module Pier.Core.Internal.Store
       Artifact(..),
       Source(..),
       builtArtifact,
-      externalFile,
+      external,
       (/>),
       -- * Rules
       storeRules,
@@ -237,10 +237,10 @@ builtArtifact h = Artifact (Built h) . normaliseMore
 --
 -- If it is a relative path, changes to the file will cause rebuilds of
 -- Commands and Rules that dependended on it.
-externalFile :: FilePath -> Artifact
-externalFile f
-    | null f' = error "externalFile: empty input"
-    | artifactDir `List.isPrefixOf` f' = error $ "externalFile: forbidden prefix: " ++ show f'
+external :: FilePath -> Artifact
+external f
+    | null f' = error "external: empty input"
+    | artifactDir `List.isPrefixOf` f' = error $ "external: forbidden prefix: " ++ show f'
     | otherwise = Artifact External f'
   where
     f' = normaliseMore f
