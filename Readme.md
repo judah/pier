@@ -249,7 +249,7 @@ package.
 Build outputs are also mirrored into a shared cache, located by default at `~/.pier/artifact/{HASH}`.
 Files are hard-linked between there and the local `_pier`.  This enables
 sharing work between multiple projects.  To disable this behavior, use the
-command-line flag `--no-shared-cache`.  To change the location, use `--shared-cache-path`.
+command-line flag `--no-shared-cache`.  To change the location, use `--shared-cache-path`, or set the `PIER_SHARED_CACHE` environmental variable.
 
 If necessary, `pier clean-all` will delete the `_pier` folder (and thus wipe out the entire build).  That folder can also be deleted manually with `chmod -R u+w _pier && rm -rf _pier`.  (Files and folders in `_pier` are marked as read-only.)
 

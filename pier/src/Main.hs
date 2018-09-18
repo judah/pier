@@ -305,8 +305,12 @@ getSharedCache :: UseSharedCache -> IO (Maybe SharedCache)
 getSharedCache DontUseSharedCache = return Nothing
 getSharedCache (UseSharedCacheAt f) = return (Just $ SharedCache f)
 getSharedCache UseHomeSharedCache = do
-    h <- getHomeDirectory
-    return $ Just $ SharedCache $ h </> ".pier" </> "artifact"
+    env <- lookupEnv "PIER_SHARED_CACHE"
+    Just . SharedCache <$> case env of
+        Just p -> return p
+        Nothing -> do
+            h <- getHomeDirectory
+            return $ h </> ".pier" </> "artifact"
 
 -- TODO: move into Build.hs
 data Target
