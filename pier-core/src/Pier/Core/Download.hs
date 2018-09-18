@@ -56,7 +56,6 @@ downloadRules sharedCache = do
     createArtifacts sharedCache h [msg] $ \tmpDir -> do
         let out = tmpDir </> name
         createParentIfMissing out
-        putNormal ("XXX" ++ msg)
         liftIO $ do
             let url = downloadUrlPrefix d ++ "/" ++ downloadName d
             req <- parseRequest url
