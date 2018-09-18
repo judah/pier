@@ -324,7 +324,7 @@ makeRelativeGlobalDb corePkgs ghc = do
     ghcDir <- runCommandOutput ghcFixed
                 $ shadow (ghcLibRoot ghc) ghcFixed
                 <> inputList confs
-                <> message "Making global DB relative"
+                <> message "Building core package database"
                 <> prog "rm" ["-rf", db]
                 <> ghcPkg ["init", db]
                 <> foldMap
