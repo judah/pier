@@ -46,7 +46,7 @@ collectHappyDataFiles ghc dir = do
              glr_templates
         ]
     let files = "data-files"
-    runCommand (output files) $
+    runCommandOutput files $
         foldMap (\a -> shadow a $ files </> takeBaseName (pathIn a))
             as
   where
@@ -88,7 +88,7 @@ collectAlexDataFiles ghc dir =  do
              wrappers
         ]
     let files = "data-files"
-    runCommand (output files) $
+    runCommandOutput files $
         foldMap (\a -> shadow a $ files </> takeBaseName (pathIn a))
             as
   where
@@ -118,7 +118,7 @@ collectAlexDataFiles ghc dir =  do
 processTemplate
     :: InstalledGhc -> Artifact -> String -> [String] -> Action Artifact
 processTemplate ghc baseTemplate outFile args = do
-    a <- runCommand (output outFile)
+    a <- runCommandOutput outFile
         $ ghcProg ghc
             (["-o", outFile, "-E", "-cpp", pathIn baseTemplate] ++ args)
         <> input baseTemplate

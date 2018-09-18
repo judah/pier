@@ -34,7 +34,7 @@ downloadCabalPackage pkg = do
 getPackageSourceDir :: PackageIdentifier -> Action Artifact
 getPackageSourceDir pkg = do
     tarball <- downloadCabalPackage pkg
-    runCommand (output outDir)
+    runCommandOutput outDir
         $ message ("Unpacking " ++ display pkg)
         <> prog "tar" ["-xzf", pathIn tarball, "-C", takeDirectory outDir]
         <> input tarball
@@ -49,7 +49,7 @@ configurePackage plan flags packageSourceDir = do
     case buildType desc of
         Configure -> do
             let configuredDir = name
-            configuredPackage <- runCommand (output configuredDir)
+            configuredPackage <- runCommandOutput configuredDir
                 $ shadow packageSourceDir configuredDir
                 <> message ("Configuring " ++ name)
                 <> withCwd configuredDir (progTemp (configuredDir </> "configure") [])

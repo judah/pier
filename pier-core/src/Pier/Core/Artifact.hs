@@ -4,9 +4,9 @@ This is a layer on top of Shake which enables build actions to be written in a
 "forwards" style.  For example:
 
 > runPier $ action $ do
->     contents <- lines <$> readArtifactA (externalFile "result.txt")
+>     contents <- lines <$> readArtifactA (external "result.txt")
 >     let result = "result.tar"
->     runCommand (output result)
+>     runCommandOutput result
 >        $ foldMap input contents
 >          <> prog "tar" (["-cf", result] ++ map pathIn contents)
 
@@ -45,7 +45,7 @@ module Pier.Core.Artifact
     , HandleTemps(..)
       -- * Artifact
     , Artifact
-    , externalFile
+    , external
     , (/>)
     , replaceArtifactExtension
     , readArtifact
@@ -57,6 +57,7 @@ module Pier.Core.Artifact
       -- * Creating artifacts
     , writeArtifact
     , runCommand
+    , runCommandOutput
     , runCommand_
     , runCommandStdout
     , Command
@@ -277,10 +278,13 @@ runCommand :: Output t -> Command -> Action t
 runCommand (Output outs mk) c
     = mk <$> askPersistent (CommandQ c outs)
 
+runCommandOutput :: FilePath -> Command -> Action Artifact
+runCommandOutput f = runCommand (output f)
+
 -- Run the given command and record its stdout.
 runCommandStdout :: Command -> Action String
 runCommandStdout c = do
-    out <- runCommand (output stdoutOutput) c
+    out <- runCommandOutput stdoutOutput c
     liftIO $ readFile $ pathIn out
 
 -- | Run the given command without capturing its output.  Can be used to check
@@ -575,7 +579,7 @@ createDirectoryA f = prog "mkdir" ["-p", f]
 -- | Group source files by shadowing into a single directory.
 groupFiles :: Artifact -> [(FilePath, FilePath)] -> Action Artifact
 groupFiles dir files = let out = "group"
-                   in runCommand (output out)
+                   in runCommandOutput out
                         $ createDirectoryA out
                         <> foldMap (\(f, g) -> shadow (dir /> f) (out </> g))
                             files

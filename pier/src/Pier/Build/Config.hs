@@ -99,7 +99,7 @@ askConfig = do
     -- We do it again later so the full PackageDescription
     -- doesn't need to get saved in the cache.
     pkgDescs <- mapM (\f -> do
-                        let a = externalFile f
+                        let a = external f
                         pkg <- parseCabalFileInDir a
                         return (packageName pkg, (a, packageVersion pkg)))
                     $ packages yaml
