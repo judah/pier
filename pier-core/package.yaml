@@ -5,7 +5,7 @@ maintainer: judah.jacobson@gmail.com
 synopsis: A library for writing forwards-declared build systems in haskell.
 description: |
     A library for writing build systems in Haskell, built on top of
-    <http://shakebuild.com shake>.
+    <http://shakebuild.com Shake>.
 
     Pier provides a generic approach to building and caching file outputs.
     It enables build actions to be written in a "forwards" style, which
@@ -13,7 +13,11 @@ description: |
     such as make or (normal) Shake, where each step of the build logic must
     be written as a new build rule.
 
-    For more details, see "Pier.Core.Artifact".
+    For more details of the API, start with "Pier.Core.Artifact".
+
+    See <https://hackage.haskell.org/package/pier pier> for information
+    on the Haskell build tool that uses this package.
+
 category: Development
 github: judah/pier
 

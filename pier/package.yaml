@@ -3,9 +3,19 @@ version: 0.3.0.0
 license: BSD3
 maintainer: judah.jacobson@gmail.com
 synopsis: Yet another Haskell build system.
-description: >
-    A build system for Haskell projects, built on top of
-    [shake](http://shakebuild.com).
+description: |
+    Pier is a command-line tool for building Haskell projects.  It is
+    similar in purpose to <https://www.haskellstack.org Stack>,
+    but explores a different design:
+
+    * Pier implements the fine-grained Haskell build logic from (nearly)
+      scratch.  In contrast, Stack relies on Cabal to implement most of its
+      build steps, giving it a more coarse control over the build.
+    * Pier uses general-purpose libraries for implementing build systems, namely
+      <https://shakebuild.com Shake> and <https://hackage.haskell.org/package/pier-core pier-core>.
+
+    For more information, see the official <https://github.com/judah/pier/blob/master/Readme.md documentation>.
+
 category: Development
 github: judah/pier
 
