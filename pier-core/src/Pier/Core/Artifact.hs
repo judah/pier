@@ -86,7 +86,6 @@ import Data.Set (Set)
 import Development.Shake
 import Development.Shake.Classes
 import Development.Shake.FilePath
-import Distribution.Simple.Utils (matchDirFileGlob)
 import GHC.Generics
 import System.Directory as Directory
 import System.Exit (ExitCode(..))
@@ -559,11 +558,10 @@ doesArtifactExist f = liftIO $ Directory.doesFileExist (pathIn f)
 
 -- Note: this throws an exception if there's no match.
 matchArtifactGlob :: Artifact -> FilePath -> Action [FilePath]
--- TODO: match the behavior of Cabal
 matchArtifactGlob (Artifact External f) g
     = getDirectoryFiles f [g]
 matchArtifactGlob a g
-    = liftIO $ matchDirFileGlob (pathIn a) g
+    = liftIO $ getDirectoryFilesIO (pathIn a) [g]
 
 -- TODO: merge more with above code?  How hermetic should it be?
 callArtifact :: HandleTemps -> Set Artifact -> Artifact -> [String] -> IO ()
