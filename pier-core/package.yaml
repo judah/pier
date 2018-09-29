@@ -24,7 +24,6 @@ github: judah/pier
 library:
   source-dirs: 'src'
   dependencies:
-    - Cabal == 2.2.*
     - base == 4.11.*
     - base64-bytestring == 1.0.*
     - binary == 0.8.*
