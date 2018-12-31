@@ -259,7 +259,9 @@ downloadAndInstallGHC version = do
         Right x
             | Just download <- HM.lookup version (ghcVersions x)
                 -> pure download
-            | otherwise -> fail $ "Couldn't find GHC version" ++ Cabal.display version
+            | otherwise -> fail $
+                "Couldn't find GHC version " ++ Cabal.display version
+                ++ " in the Stackage setup configuration."
     -- TODO: reenable this once we've fixed the issue with nondetermistic
     -- temp file locations.
     -- rerunIfCleaned
