@@ -34,12 +34,11 @@ downloadCabalPackage pkg = do
 getPackageSourceDir :: PackageIdentifier -> Action Artifact
 getPackageSourceDir pkg = do
     tarball <- downloadCabalPackage pkg
-    runCommandOutput outDir
+    fmap (/> display pkg)
+        $ runCommand
         $ message ("Unpacking " ++ display pkg)
-        <> prog "tar" ["-xzf", pathIn tarball, "-C", takeDirectory outDir]
+        <> prog "tar" ["-xzf", pathIn tarball, "-C", "."]
         <> input tarball
-  where
-    outDir = "package/raw" </> display pkg
 
 configurePackage :: BuildPlan -> Flags -> Artifact -> Action (PackageDescription, Artifact)
 configurePackage plan flags packageSourceDir = do
@@ -48,11 +47,10 @@ configurePackage plan flags packageSourceDir = do
     let name = display (packageName desc)
     case buildType desc of
         Configure -> do
-            let configuredDir = name
-            configuredPackage <- runCommandOutput configuredDir
-                $ shadow packageSourceDir configuredDir
+            configuredPackage <- runCommand
+                $ shadow packageSourceDir ""
                 <> message ("Configuring " ++ name)
-                <> withCwd configuredDir (progTemp (configuredDir </> "configure") [])
+                <> progTemp ("configure") []
             let buildInfoFile = configuredPackage />
                                     (name <.> "buildinfo")
             buildInfoExists <- doesArtifactExist buildInfoFile

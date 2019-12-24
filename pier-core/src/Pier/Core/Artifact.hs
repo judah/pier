@@ -57,14 +57,10 @@ module Pier.Core.Artifact
       -- * Creating artifacts
     , writeArtifact
     , runCommand
-    , runCommandOutput
     , runCommand_
     , runCommandStdout
     , Command
     , message
-      -- ** Command outputs
-    , Output
-    , output
       -- ** Command inputs
     , input
     , inputs
@@ -78,9 +74,10 @@ module Pier.Core.Artifact
     , pathIn
     , withCwd
     , createDirectoryA
+    , mkdir
     ) where
 
-import Control.Monad (forM_, when, unless)
+import Control.Monad (when, unless, void)
 import Control.Monad.IO.Class
 import Data.Set (Set)
 import Development.Shake
@@ -193,32 +190,6 @@ shadow a f
                             ++ show f
     | otherwise = Command [Shadow a f] mempty
 
--- | The output of a given command.
---
--- Multiple outputs may be combined using the 'Applicative' instance.
-data Output a = Output [FilePath] (Hash -> a)
-
-instance Functor Output where
-    fmap f (Output g h) = Output g (f . h)
-
-instance Applicative Output where
-    pure = Output [] . const
-    Output f g <*> Output f' g' = Output (f ++ f') (g <*> g')
-
--- | Register a single output of a command.
---
--- The input must be a relative path and nontrivial (i.e., not @"."@ or @""@).
-output :: FilePath -> Output Artifact
-output f
-    | ds `elem` [[], ["."]] = error $ "can't output empty path " ++ show f
-    | ".." `elem` ds  = error $ "output: can't have \"..\" as a path component: "
-                                    ++ show f
-    | normalise f == "." = error $ "Can't output empty path " ++ show f
-    | isAbsolute f = error $ "Can't output absolute path " ++ show f
-    | otherwise = Output [f] $ flip builtArtifact f
-  where
-    ds = splitDirectories f
-
 externalArtifactDir :: FilePath
 externalArtifactDir = artifactDir </> "external"
 
@@ -237,14 +208,11 @@ createExternalLink = do
         createDirectoryLink "../.." externalArtifactDir
 
 -- | The build rule type for commands.
-data CommandQ = CommandQ
-    { commandQCmd :: Command
-    , _commandQOutputs :: [FilePath]
-    }
+newtype CommandQ = CommandQ {commandQCmd :: Command}
     deriving (Eq, Generic)
 
 instance Show CommandQ where
-    show CommandQ { commandQCmd = Command progs _ }
+    show (CommandQ (Command progs _ ))
         = let msgs = List.intercalate "; " [m | Message m <- progs]
           in "Command" ++
                 if null msgs
@@ -273,26 +241,23 @@ commandHash cmdQ = do
     makeHash ("commandHash", cmdQ, userFileHashes)
 
 -- | Run the given command, capturing the specified outputs.
-runCommand :: Output t -> Command -> Action t
-runCommand (Output outs mk) c
-    = mk <$> askPersistent (CommandQ c outs)
-
-runCommandOutput :: FilePath -> Command -> Action Artifact
-runCommandOutput f = runCommand (output f)
+runCommand :: Command -> Action Artifact
+runCommand c = flip builtArtifact "" <$> askPersistent (CommandQ c)
 
 -- Run the given command and record its stdout.
 runCommandStdout :: Command -> Action String
 runCommandStdout c = do
-    out <- runCommandOutput stdoutOutput c
-    liftIO $ readFile $ pathIn out
+    out <- runCommand c
+    liftIO $ readFile $ pathIn (out /> stdoutOutput)
 
 -- | Run the given command without capturing its output.  Can be used to check
 -- consistency of the outputs of previous commands.
 runCommand_ :: Command -> Action ()
-runCommand_ = runCommand (pure ())
+runCommand_ = void . runCommand
 
 commandRules :: Maybe SharedCache -> HandleTemps -> Rules ()
-commandRules sharedCache ht = addPersistent $ \cmdQ@(CommandQ (Command progs inps) outs) -> do
+commandRules sharedCache ht = addPersistent
+        $ \cmdQ@(CommandQ (Command progs inps)) -> do
     putChatty $ showCommand cmdQ
     h <- commandHash cmdQ
     createArtifacts sharedCache h (progMessages progs) $ \resultDir ->
@@ -303,7 +268,6 @@ commandRules sharedCache ht = addPersistent $ \cmdQ@(CommandQ (Command progs inp
         let tmpPathOut = (tmpDir </>)
 
         liftIO $ collectInputs (unHashableSet inps) tmpDir
-        mapM_ (createParentIfMissing . tmpPathOut) outs
 
         -- Run the command, and write its stdout to a special file.
         root <- liftIO getCurrentDirectory
@@ -313,19 +277,12 @@ commandRules sharedCache ht = addPersistent $ \cmdQ@(CommandQ (Command progs inp
         createParentIfMissing stdoutPath
         liftIO $ B.writeFile stdoutPath stdoutStr
 
-        -- Check that all the output files exist, and move them
-        -- into the output directory.
-        liftIO $ forM_ outs $ \f -> do
-            let src = tmpPathOut f
-            let dest = resultDir </> f
-            exist <- Directory.doesPathExist src
-            unless exist $
-                error $ "runCommand: missing output "
-                        ++ show f
-                        ++ " in temporary directory "
-                        ++ show tmpDir
-            createParentIfMissing dest
-            renamePath src dest
+        -- Move any output files into the final location.
+        -- TODO: this can be simpler...we don't need two levels
+        -- of temp dir anymore.
+        liftIO $ listDirectory tmpDir
+            >>= mapM_ (\f -> renamePath (tmpDir </> f) (resultDir </> f))
+                . filter (not . (== pierDir))
     return h
 
 putChatty :: String -> Action ()
@@ -341,7 +298,7 @@ collectInputs :: Set Artifact -> FilePath -> IO ()
 collectInputs inps tmp = do
     let inps' = dedupArtifacts inps
     checkAllDistinctPaths inps'
-    liftIO $ mapM_ (linkArtifact tmp) inps'
+    mapM_ (linkArtifact tmp) inps'
 
 -- Call a process inside the given directory and capture its stdout.
 -- TODO: more flexibility around the env vars
@@ -434,12 +391,10 @@ showProg (ProgCall call args cwd) =
     showCall (CallTemp f) = f -- TODO: differentiate from CallEnv
 
 showCommand :: CommandQ -> String
-showCommand (CommandQ (Command progs inps) outputs) = unlines $
-    map showOutput outputs
-    ++ map showInput (Set.toList $ unHashableSet inps)
+showCommand (CommandQ (Command progs inps)) = unlines $
+    map showInput (Set.toList $ unHashableSet inps)
     ++ map showProg progs
   where
-    showOutput a = "Output: " ++ a
     showInput i = "Input: " ++ pathIn i
 
 stdoutOutput :: FilePath
@@ -483,6 +438,11 @@ dedupArtifacts = loop . Set.toAscList
 linkArtifact :: FilePath -> Artifact -> IO ()
 linkArtifact _ (Artifact External f)
     | isAbsolute f = return ()
+-- TODO: remove this edge case.
+linkArtifact dir a@(Artifact (Built _) ".") = do
+    curDir <- getCurrentDirectory
+    ds <- listDirectory $ curDir </> realPathIn a
+    mapM_ (linkArtifact dir . (a />)) ds
 linkArtifact dir a = do
     curDir <- getCurrentDirectory
     let realPath = curDir </> realPathIn a
@@ -577,7 +537,11 @@ createDirectoryA f = prog "mkdir" ["-p", f]
 -- | Group source files by shadowing into a single directory.
 groupFiles :: Artifact -> [(FilePath, FilePath)] -> Action Artifact
 groupFiles dir files = let out = "group"
-                   in runCommandOutput out
+                   in fmap (/> out)
+                        $ runCommand
                         $ createDirectoryA out
                         <> foldMap (\(f, g) -> shadow (dir /> f) (out </> g))
                             files
+
+mkdir :: FilePath -> Command
+mkdir f = prog "mkdir" ["-p", f]

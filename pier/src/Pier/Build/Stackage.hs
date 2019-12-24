@@ -273,17 +273,15 @@ downloadAndInstallGHC version = do
     -- We'll install it explicitly in ${TMPDIR}, but that puts explicit references
     -- to those paths in the package DB.  So we'll then generate a new DB with
     -- relative paths.
-    let installDir = "ghc-install"
     let unpackedDir = versionedGhc version
     installed <- runCommand
-       (output installDir)
        $ message "Unpacking GHC"
           <> input tar
           <> prog "tar" ["-xJf", pathIn tar]
           <> withCwd unpackedDir
                 (message "Installing GHC locally"
                 <> progTemp (unpackedDir </> "configure")
-                        ["--prefix=${TMPDIR}/" ++ installDir]
+                        ["--prefix=${TMPDIR}"]
                 <> prog "make" ["install"])
     return InstalledGhc { ghcLibRoot = installed /> "lib" </> versionedGhc version
                         , ghcInstalledVersion = version
@@ -318,11 +316,10 @@ makeRelativeGlobalDb corePkgs ghc = do
             writeArtifact (pkg ++ ".conf") desc'
     confs <- mapM makePkgConf builtinPackages
     -- let globalRelativePackageDb = "global-packages/package-fixed.conf.d"
-    let ghcFixed = "ghc-fixed"
-    let db = ghcFixed </> packageConfD
-    let ghcPkg = progTemp (ghcFixed </> "bin/ghc-pkg")
-    ghcDir <- runCommandOutput ghcFixed
-                $ shadow (ghcLibRoot ghc) ghcFixed
+    let db = packageConfD
+    let ghcPkg = progTemp ("bin/ghc-pkg")
+    ghcDir <- runCommand
+                $ shadow (ghcLibRoot ghc) ""
                 <> inputList confs
                 <> message "Building core package database"
                 <> prog "rm" ["-rf", db]

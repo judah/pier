@@ -109,8 +109,10 @@ search ghc flags m srcDir
         exists yFile
         let relOutput = toFilePath m <.> "hs"
         happy <- lift $ askBuiltExecutable (mkPackageName "happy") "happy"
-        lift . runCommandOutput relOutput
-             $ progBinary happy
+        lift . fmap (/> relOutput)
+             . runCommand
+             $ mkdir (takeDirectory relOutput)
+                <> progBinary happy
                      ["-agc", "-o", relOutput, pathIn yFile]
                 <> input yFile
 
@@ -118,8 +120,10 @@ search ghc flags m srcDir
         let hsc = srcDir /> toFilePath m <.> "hsc"
         exists hsc
         let relOutput = toFilePath m <.> "hs"
-        lift $ runCommandOutput relOutput
-             $ hsc2hsProg ghc
+        lift . fmap (/> relOutput)
+             . runCommand
+             $ mkdir (takeDirectory relOutput)
+                <> hsc2hsProg ghc
                       (["-o", relOutput
                        , pathIn hsc
                        ]
@@ -135,8 +139,10 @@ search ghc flags m srcDir
         let relOutput = toFilePath m <.> "hs"
         -- TODO: mkPackageName doesn't exist in older ones
         alex <- lift $ askBuiltExecutable (mkPackageName "alex") "alex"
-        lift . runCommandOutput relOutput
-            $ progBinary alex
+        lift . fmap (/> relOutput)
+             . runCommand
+            $ mkdir (takeDirectory relOutput)
+               <> progBinary alex
                      ["-g", "-o", relOutput, pathIn xFile]
                <> input xFile
     genC2hs = do
@@ -144,9 +150,11 @@ search ghc flags m srcDir
         exists chsFile
         let relOutput = toFilePath m <.> "hs"
         c2hs <- lift $ askBuiltExecutable (mkPackageName "c2hs") "c2hs"
-        lift . runCommandOutput relOutput
+        lift . fmap (/> relOutput)
+             $ runCommand
              $ input chsFile
             <> inputs (cIncludeDirs flags)
+            <> mkdir (takeDirectory relOutput)
             <> progBinary c2hs
                     (["-o", relOutput, pathIn chsFile]
                     ++ ["--include=" ++ pathIn f | f <- Set.toList (cIncludeDirs flags)]

@@ -11,7 +11,6 @@ module Pier.Build.Components
     )
     where
 
-import Control.Applicative (liftA2)
 import Control.Monad (filterM, (>=>))
 import Data.List (find)
 import Data.Maybe (fromMaybe)
@@ -164,8 +163,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                 let dynLibFile = "lib" ++ libHSName
                                     ++ "-ghc" ++ display (ghcVersion $ plan conf)
                                     <.> dynExt
-                (hiDir', dynLib) <- runCommand
-                    (liftA2 (,) (output hiDir) (output dynLibFile))
+                ds <- runCommand
                     $ message (display pkg ++ ": building library")
                     <> ghcCommand ghc deps confd tinfo
                           (ghcOptions conf ++
@@ -177,7 +175,7 @@ buildLibraryFromDesc deps@(BuiltDeps _ transDeps) confd lib = do
                             , "-shared", "-dynamic"
                             , "-o", dynLibFile
                             ])
-                return $ Just (libHSName, lib, dynLib, hiDir')
+                return $ Just (libHSName, lib, ds /> dynLibFile, ds /> hiDir)
     (pkgDb, libFiles) <- registerPackage ghc pkg lbi
                                 (targetCFlags tinfo) maybeLib
                                 deps
@@ -275,9 +273,10 @@ buildBinaryFromPkg confd bin = do
     let out = "bin" </> binaryName bin
     tinfo <- getTargetInfo confd (binaryBuildInfo bin) (TargetBinary $ binaryPath bin)
                 transDeps ghc
-    result <- runCommandOutput out
+    result <- fmap (/> out) $ runCommand
         $ message (display (package desc) ++ ": building "
                         ++ binaryTypeName bin ++ " " ++ binaryName bin)
+        <> mkdir (takeDirectory out)
         <> ghcCommand ghc deps confd tinfo
               (ghcOptions conf ++
                 [ "-o", out
@@ -423,7 +422,8 @@ registerPackage ghc pkg bi cflags maybeLib (BuiltDeps depPkgs transDeps)
            ]
         ++ libDesc
     let db = display pkg
-    runCommand (liftA2 (,) (output db) (output pre))
+    fmap (\f -> (f /> db, f /> pre))
+        $ runCommand
         $ collectLibInputs
             <> ghcPkgProg ghc ["init", db]
             <> ghcPkgProg ghc

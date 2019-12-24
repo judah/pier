@@ -45,9 +45,8 @@ collectHappyDataFiles ghc dir = do
         , mapM (uncurry $ processTemplate ghc (dir /> "templates/GLR_Lib.hs"))
              glr_templates
         ]
-    let files = "data-files"
-    runCommandOutput files $
-        foldMap (\a -> shadow a $ files </> takeBaseName (pathIn a))
+    runCommand $
+        foldMap (\a -> shadow a $ takeBaseName (pathIn a))
             as
   where
     templates :: [(FilePath,[String])]
@@ -87,9 +86,8 @@ collectAlexDataFiles ghc dir =  do
         , mapM (uncurry $ processTemplate ghc (dir /> "templates/wrappers.hs"))
              wrappers
         ]
-    let files = "data-files"
-    runCommandOutput files $
-        foldMap (\a -> shadow a $ files </> takeBaseName (pathIn a))
+    runCommand $
+        foldMap (\a -> shadow a $ takeBaseName (pathIn a))
             as
   where
     templates :: [(FilePath,[String])]
@@ -118,7 +116,7 @@ collectAlexDataFiles ghc dir =  do
 processTemplate
     :: InstalledGhc -> Artifact -> String -> [String] -> Action Artifact
 processTemplate ghc baseTemplate outFile args = do
-    a <- runCommandOutput outFile
+    a <- fmap (/> outFile) $ runCommand
         $ ghcProg ghc
             (["-o", outFile, "-E", "-cpp", pathIn baseTemplate] ++ args)
         <> input baseTemplate
