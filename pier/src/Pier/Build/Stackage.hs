@@ -317,7 +317,7 @@ makeRelativeGlobalDb corePkgs ghc = do
     confs <- mapM makePkgConf builtinPackages
     -- let globalRelativePackageDb = "global-packages/package-fixed.conf.d"
     let db = packageConfD
-    let ghcPkg = progTemp ("bin/ghc-pkg")
+    let ghcPkg = progTemp "bin/ghc-pkg"
     ghcDir <- runCommand
                 $ shadow (ghcLibRoot ghc) ""
                 <> inputList confs

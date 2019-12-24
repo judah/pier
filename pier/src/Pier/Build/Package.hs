@@ -50,7 +50,7 @@ configurePackage plan flags packageSourceDir = do
             configuredPackage <- runCommand
                 $ shadow packageSourceDir ""
                 <> message ("Configuring " ++ name)
-                <> progTemp ("configure") []
+                <> progTemp "configure" []
             let buildInfoFile = configuredPackage />
                                     (name <.> "buildinfo")
             buildInfoExists <- doesArtifactExist buildInfoFile

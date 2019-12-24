@@ -282,7 +282,7 @@ commandRules sharedCache ht = addPersistent
         -- of temp dir anymore.
         liftIO $ listDirectory tmpDir
             >>= mapM_ (\f -> renamePath (tmpDir </> f) (resultDir </> f))
-                . filter (not . (== pierDir))
+                . filter (/= pierDir)
     return h
 
 putChatty :: String -> Action ()
