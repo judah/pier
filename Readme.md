@@ -129,7 +129,7 @@ ghc-options:
 
 # Using `pier`
 
-For general comnmand-line usage, pass the `--help` flag:
+For general command-line usage, pass the `--help` flag:
 
 ```
 pier --help
