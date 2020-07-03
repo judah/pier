@@ -2,7 +2,7 @@
 set -xueo pipefail
 
 IMAGE=snoyberg/stackage:nightly
-PLAN=lts-12.8
+PLAN=lts-12.26
 LTSPATH=stackage/_pier/downloads/stackage/plan/$PLAN.yaml
 cat >stackage/pier.yaml <<EOF
 resolver: $PLAN
