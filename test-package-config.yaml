@@ -1,4 +1,4 @@
-resolver: lts-12.8
+resolver: lts-12.26
 
 # Older packages that we'd still like to test, but haven't made it
 # into the latest LTS.
